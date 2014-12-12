@@ -2,6 +2,7 @@
 (require racket/match
          racket/cmdline
          racket/file
+         racket/place
          rackunit
          rackunit/text-ui
          racket/unit
@@ -237,9 +238,11 @@ Testing profiles are flattened, not hierarchical.
                  (make-all-tests label (get-dbconf (string->symbol label)))))]
         [tests
          (cond [(or include-sqlite? no-labels?)
-                (list* (cons "sqlite3, memory" sqlite-test)
-                       (cons "sqlite3, memory, #:use-place=#t" sqlite/p-test)
-                       tests)]
+                (append (list (cons "sqlite3, memory" sqlite-test))
+                        (if (place-enabled?)
+                            (list (cons "sqlite3, memory, #:use-place=#t" sqlite/p-test))
+                            null)
+                        tests)]
                [else tests])]
         [tests
          (cond [(or include-generic? no-labels?)
