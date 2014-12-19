@@ -50,6 +50,11 @@ polygon = #points:int4 (x y : float8)*
                     (error* 'pg-array "list for dimension lower bounds has wrong length"
                             "expected length" ndim
                             '("got" value) lbounds))
+                  (when (zero? ndim)
+                    (unless (equal? vals '#())
+                      (error* 'pg-array
+                              "bad array contents for zero-dimensional array"
+                              '("contents" value) vals)))
                   (let loop ([counts* counts] [vals* vals])
                     (when (pair? counts*)
                       (unless (and (vector? vals*)
@@ -83,8 +88,8 @@ polygon = #points:int4 (x y : float8)*
             [else vals]))))
 
 (define (pg-array->list arr)
-  (unless (= (pg-array-dimensions arr) 1)
-    (raise-type-error 'pg-array->list "pg-array of dimension 1" arr))
+  (unless (member (pg-array-dimensions arr) '(0 1))
+    (raise-type-error 'pg-array->list "pg-array of dimension 0 or 1" arr))
   (vector->list (pg-array-contents arr)))
 
 (define (list->pg-array lst)
