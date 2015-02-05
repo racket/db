@@ -1,13 +1,28 @@
 #lang racket/base
-(require db)
+(require db
+         racket/match)
 
-;; This tests custodian shutdowns for sqlite3 connections.
+;; This tests custodian shutdowns connections.
 ;; Success indicates that a custodian shutdown
 ;; - doesn't crash
 ;; - doesn't deadlock (due to call-with-lock in atomic mode)
 ;;   - if DrDr times out, may indicate deadlock
 ;; - can interrupt a db operation (query)
 ;;   - checked by exn message
+
+;; Usage: racket custodian.rkt [dsn]
+;; Test sqlite3 if no dsn, test dsn if present.
+
+(define dsn #f)
+(match (current-command-line-arguments)
+  [(vector dsn-string)
+   (set! dsn (string->symbol dsn-string))]
+  [(vector)
+   (void)]
+  [_
+   (error 'test "script takes one optional DSN argument")])
+
+(printf "Running tests for ~a.\n" (or dsn 'sqlite3))
 
 (define counter 0)
 (define shutdown-exn? #f)
@@ -16,7 +31,9 @@
   (define cust (make-custodian))
   (define c
     (parameterize ((current-custodian cust))
-      (sqlite3-connect #:database 'memory)))
+      (if dsn
+          (dsn-connect dsn)
+          (sqlite3-connect #:database 'memory))))
   (define result #f)
   (define th
     (thread
