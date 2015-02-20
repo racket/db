@@ -337,13 +337,13 @@
   (with-length-in p #\n
     (make-NoData)))
 
-(define-struct NotificationResponse (process-id condition info) #:transparent)
+(define-struct NotificationResponse (process-id channel payload) #:transparent)
 (define (parse:NotificationResponse p)
   (with-length-in p #\A
     (let* ([process-id (io:read-int32 p)]
-           [condition (io:read-int32 p)]
-           [info (io:read-int32 p)])
-      (make-NotificationResponse process-id condition info))))
+           [channel (io:read-null-terminated-string p)]
+           [payload (io:read-null-terminated-string p)])
+      (make-NotificationResponse process-id channel payload))))
 
 (define-struct ParameterDescription (type-oids) #:transparent)
 (define (parse:ParameterDescription p)
