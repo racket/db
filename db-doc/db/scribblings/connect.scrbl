@@ -46,7 +46,8 @@ Base connections are made using the following functions.
                    void]
                   [#:notification-handler notification-handler
                    (or/c 'output 'error output-port?
-                         (-> string? any))
+                         (-> string? any)
+                         (-> string? string? any))
                    void])
          connection?]{
 
@@ -89,14 +90,17 @@ Base connections are made using the following functions.
   @racket[ssl-load-private-key!]. SSL may only be used with TCP
   connections, not with local sockets.
 
-  The @racket[notice-handler] is called on notice messages
-  received asynchronously from the server. A common example is notice
-  of an index created automatically for a table's primary key. The
+  The @racket[notice-handler] is called on notice messages received
+  asynchronously from the server. A common example is notice of an
+  index created automatically for a table's primary key. The
   @racket[notice-handler] function takes two string arguments: the
   condition's SQLSTATE and a message. The
   @racket[notification-handler] is called in response to an event
   notification (see the @tt{LISTEN} and @tt{NOTIFY} statements); its
-  argument is the name of the event as a string. An output port may be
+  arguments are the name of the channel, and the payload, as strings.
+  If the handler only accepts a single argument, then it will be
+  called without the payload. The ability to include a payload in a
+  notification was added in PostgreSQL 9.0. An output port may be
   supplied instead of a procedure, in which case a message is printed
   to the given port. Finally, the symbol @racket['output] causes the
   message to be printed to the current output port, and

@@ -62,12 +62,12 @@
   (guess-socket-path/paths 'postgresql-guess-socket-path socket-paths))
 
 ;; make-print-notification : output-port -> string -> void
-(define ((make-print-notification out) condition)
+(define ((make-print-notification out) channel payload)
   (fprintf (case out
              ((output) (current-output-port))
              ((error) (current-error-port))
              (else out))
-           "notification: ~a\n" condition))
+           "notification: ~a ~a\n" channel payload))
 
 (define (postgresql-password-hash user password)
   (bytes->string/latin-1 (password-hash user password)))

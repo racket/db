@@ -143,8 +143,11 @@
          (let ([code (cdr (assq 'code properties))]
                [message (cdr (assq 'message properties))])
            (add-delayed-call! (lambda () (notice-handler code message))))]
-        [(struct NotificationResponse (pid condition info))
-         (add-delayed-call! (lambda () (notification-handler condition)))]
+        [(struct NotificationResponse (pid channel info))
+         (add-delayed-call! (lambda ()
+                              (if (procedure-arity-includes? notification-handler 2)
+                                  (notification-handler channel info)
+                                  (notification-handler channel))))]
         [(struct ParameterStatus (name value))
          (cond [(equal? name "client_encoding")
                 (unless (equal? value "UTF8")
