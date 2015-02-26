@@ -162,6 +162,7 @@
   (1560 bit          0   1  recv-bits         send-bits)
   (1562 varbit       0   1  recv-bits         send-bits)
   (114  json         9.2 1  recv-json         send-json)
+  (3802 jsonb        9.4 1  recv-jsonb        send-jsonb)
 
   (600  point        0   1  recv-point        send-point)
   (601  lseg         0   1  recv-lseg         send-lseg)
@@ -204,6 +205,7 @@
   (1561 bit-array         0   1  recv-array (send-array 1560))
   (1563 varbit-array      0   1  recv-array (send-array 1562))
   (199  json-array        9.2 1  recv-array (send-array 114))
+  (3807 jsonb-array       9.4 1  recv-array (send-array 3802))
 
   (1115 timestamp-array   0   1  recv-array (send-array 1114))
   (1182 date-array        0   1  recv-array (send-array 1082))
@@ -223,6 +225,7 @@
   (2275 cstring           0   1 recv-string send-string)
   ;; Receive but do not send
   (2249 record            #f  1 recv-record #f)
+  (2278 void              #f  1 recv-void   #f)
   (2287 record-array      #f  1 recv-array  #f)
 
   ;; The following types are not supported.
@@ -247,8 +250,18 @@
   (1025 tinterval-array   #f 0 #f #f)
   (1040 macaddr-array     #f 0 #f #f)
   (1041 inet-array        #f 0 #f #f)
+  (2279 trigger           #f 0 #f #f)
+  (2281 internal          #f 0 #f #f)
+  (2282 opaque            #f 0 #f #f)
   (2950 uuid              #f 0 #f #f)
-  (2951 uuid-array        #f 0 #f #f))
+  (2951 uuid-array        #f 0 #f #f)
+  (3614 tsvector          #f 0 #f #f)
+  (3515 tsquery           #f 0 #f #f)
+  (3642 gtsvector         #f 0 #f #f)
+  (3643 tsvector-array    #f 0 #f #f)
+  (3644 gtsvector-array   #f 0 #f #f)
+  (3645 tsquery-array     #f 0 #f #f))
+
 
 ;; ----------------------------------------
 
@@ -288,6 +301,10 @@ inet, cidr = family:byte bits:byte is_cidr:byte addrlen:byte addr:be-integer
 record = cols:int4 (typeoid:int4 len/-1:int4 data:byte^len)^cols 
 
 range = flags:byte (len:int4 data:byte^len)^{0..2}
+
+jsonb = version:byte byte*
+  if version==1 then the remaining bytes are the same as json (text)
+     version>1 haven't been defined yet (as of postgresql 9.4.1)
 
 |#
 
@@ -434,6 +451,9 @@ range = flags:byte (len:int4 data:byte^len)^{0..2}
       (vector-set! result i (recv-col)))
     result))
 
+(define (recv-void buf start end)
+  (void))
+
 (define (recv-array buf start end)
   (define (get-int signed?)
     (begin0 (integer-bytes->integer buf signed? #t start (+ start 4))
@@ -491,6 +511,12 @@ range = flags:byte (len:int4 data:byte^len)^{0..2}
 
 (define (recv-json buf start end)
   (bytes->jsexpr (subbytes buf start end)))
+
+(define (recv-jsonb buf start end)
+  (case (bytes-ref buf start)
+    ((1) (bytes->jsexpr (subbytes buf (+ start 1) end)))
+    (else (error/internal 'recv-jsonb "unknown binary encoding version ~e"
+                          (bytes-ref buf start)))))
 
 (define (recv-range elttype)
   (define EMPTY  #x01)
@@ -767,6 +793,12 @@ range = flags:byte (len:int4 data:byte^len)^{0..2}
   (unless (jsexpr? x)
     (send-error f "json" x #:contract 'jsexpr?))
   (jsexpr->bytes x))
+
+(define (send-jsonb f x)
+  (unless (jsexpr? x)
+    (send-error f "jsonb" x #:contract 'jsexpr?))
+  (bytes-append (bytes 1)
+                (jsexpr->bytes x)))
 
 (define (send-range elttype)
   (define EMPTY  #x01)
