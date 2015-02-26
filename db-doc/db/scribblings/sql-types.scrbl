@@ -83,6 +83,7 @@ along with their corresponding Racket representations.
   @racket['varbit]        @& @tt{varbit}             @& @racket[bit-vector?] @//
 
   @racket['json]          @& @tt{json}               @& @racket[jsexpr?] @//
+  @racket['jsonb]         @& @tt{jsonb}              @& @racket[jsexpr?] @//
   @racket['int4range]     @& @tt{int4range}          @& @racket[pg-range-or-empty?] @//
   @racket['int8range]     @& @tt{int8range}          @& @racket[pg-range-or-empty?] @//
   @racket['numrange]      @& @tt{numrange}           @& @racket[pg-range-or-empty?] @//
