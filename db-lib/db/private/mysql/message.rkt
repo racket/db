@@ -809,12 +809,26 @@ computed string on the server can be. See also:
     ((double)
      (io:write-bytes out (real->floating-point-bytes (exact->inexact param) 8)))
     ((date)
-     (let ([bs (bytes-append (integer->integer-bytes (sql-date-year param) 2 #t #f)
+     (let ([bs (bytes-append (with-handlers
+                                 ([exn:fail?
+                                   (lambda (exn)
+                                     ;; re-raise with more informative message:
+                                     (error 'write-binary-datum
+                                            (format "mysql requires year in fixed range: ~a"
+                                                    (exn-message exn))))])
+                               (integer->integer-bytes (sql-date-year param) 2 #t #f))
                              (bytes (sql-date-month param))
                              (bytes (sql-date-day param)))])
        (io:write-length-coded-bytes out bs)))
     ((timestamp)
-     (let ([bs (bytes-append (integer->integer-bytes (sql-timestamp-year param) 2 #t #f)
+     (let ([bs (bytes-append (with-handlers
+                                 ([exn:fail?
+                                   (lambda (exn)
+                                     ;; re-raise with more informative message:
+                                     (error 'write-binary-datum
+                                            (format "mysql requires year in fixed range: ~a"
+                                                    (exn-message exn))))])
+                               (integer->integer-bytes (sql-timestamp-year param) 2 #t #f))
                              (bytes (sql-timestamp-month param))
                              (bytes (sql-timestamp-day param))
                              (bytes (sql-timestamp-hour param))
