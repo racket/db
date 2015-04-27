@@ -301,6 +301,11 @@
       (hash-set! actual=>number c actual-number)
       c)
 
+    (define/private (clear-idle*)
+      (for ([c (in-list idle-list)])
+        (send c disconnect))
+      (set! idle-list null))
+
     (define mgr
       (new manager%
            (other-evt
@@ -320,7 +325,12 @@
     (define/public (release proxy)
       (let ([raw-c (send proxy release-connection)])
         (send mgr call (lambda () (release* proxy raw-c "proxy disconnect"))))
-      (void))))
+      (void))
+
+    (define/public (clear-idle)
+      (send mgr call (lambda () (clear-idle*))))
+
+    ))
 
 ;; --
 
