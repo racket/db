@@ -13,28 +13,23 @@
   (class object%
     ;; other-evt : (-> evt)
     ;; generates other evt to sync on besides req-channel, eg timeouts
-    (init-field (other-evt (lambda () never-evt))
-                (alt-enabled? (lambda () #t)))
+    (init-field (other-evt (lambda () never-evt)))
     (super-new)
 
     (define req-channel (make-channel))
-    (define alt-req-channel (make-channel))
 
     (define mthread
       (thread/suspend-to-kill
        (lambda ()
          (let loop ()
            (sync (wrap-evt req-channel (lambda (p) (p)))
-                 (if (alt-enabled?)
-                     (wrap-evt alt-req-channel (lambda (p) (p)))
-                     never-evt)
                  (other-evt))
            (loop)))))
 
     (define/public (call proc)
       (call* proc req-channel #f))
-    (define/public (alt-call-evt proc)
-      (call* proc alt-req-channel #t))
+    (define/public (call-evt proc)
+      (call* proc req-channel #t))
 
     (define/private (call* proc chan as-evt?)
       (thread-resume mthread (current-thread))
@@ -248,18 +243,27 @@
     ;; idle-list : (listof raw-connection)
     (define idle-list null)
 
+    ;; lease* : Evt -> (U Connection 'limit)
     (define/private (lease* key)
-      (let* ([reused-c (try-take-idle)]
-             [raw-c (or reused-c (new-connection))]
-             [proxy-number (begin0 proxy-counter (set! proxy-counter (add1 proxy-counter)))]
-             [c (new proxy-connection% (pool this) (connection raw-c) (number proxy-number))])
-        (log-db-debug "connection-pool: leasing connection #~a (~a @~a)"
-                      proxy-number
-                      (if reused-c "idle" "new")
-                      (hash-ref actual=>number raw-c "???"))
-        (hash-set! proxy=>evt c (wrap-evt key (lambda (_e) c)))
-        (set! assigned-connections (add1 assigned-connections))
-        c))
+      (cond [(< assigned-connections max-connections)
+             (cond [(try-take-idle)
+                    => (lambda (raw-c) (lease** key raw-c #t))]
+                   [else (lease** key (new-connection) #f)])]
+            [else 'limit]))
+
+    (define/private (lease** key raw-c reused?)
+      (define proxy-number proxy-counter)
+      (set! proxy-counter (add1 proxy-counter))
+      (define c
+        (new proxy-connection%
+             (pool this) (connection raw-c) (number proxy-number)))
+      (log-db-debug "connection-pool: leasing connection #~a (~a @~a)"
+                    proxy-number
+                    (if reused? "idle" "new")
+                    (hash-ref actual=>number raw-c "???"))
+      (hash-set! proxy=>evt c (wrap-evt key (lambda (_e) c)))
+      (set! assigned-connections (add1 assigned-connections))
+      c)
 
     (define/private (try-take-idle)
       (and (pair? idle-list)
@@ -289,14 +293,13 @@
         (set! assigned-connections (sub1 assigned-connections))))
 
     (define/private (new-connection)
-      (let ([c (connector)]
-            [actual-number
-             (begin0 actual-counter
-               (set! actual-counter (add1 actual-counter)))])
-        (when (or (hash-ref proxy=>evt c #f) (memq c idle-list))
-          (error 'connection-pool "connect function did not produce a fresh connection"))
-        (hash-set! actual=>number c actual-number)
-        c))
+      (define c (connector))
+      (define actual-number actual-counter)
+      (set! actual-counter (add1 actual-counter))
+      (when (or (hash-ref proxy=>evt c #f) (memq c idle-list))
+        (error 'connection-pool "connect function did not produce a fresh connection"))
+      (hash-set! actual=>number c actual-number)
+      c)
 
     (define mgr
       (new manager%
@@ -307,13 +310,12 @@
                             (lambda (proxy)
                               (release* proxy
                                         (send proxy release-connection)
-                                        "release-evt"))))))
-           (alt-enabled? (lambda () (< assigned-connections max-connections)))))
+                                        "release-evt"))))))))
 
     ;; == methods called in client thread ==
 
     (define/public (lease-evt key)
-      (send mgr alt-call-evt (lambda () (lease* key))))
+      (send mgr call-evt (lambda () (lease* key))))
 
     (define/public (release proxy)
       (let ([raw-c (send proxy release-connection)])
@@ -376,12 +378,15 @@
 (define (connection-pool? x)
   (is-a? x connection-pool%))
 
-(define (connection-pool-lease pool [key (current-thread)])
-  (let* ([key
-          (cond [(thread? key) (thread-dead-evt key)]
-                [(custodian? key) (make-custodian-box key #t)]
-                [else key])]
-         [result (sync/timeout 0.1 (send pool lease-evt key))])
-    (unless result
-      (error 'connection-pool-lease "connection pool limit reached"))
-    result))
+(define (connection-pool-lease pool [key (current-thread)]
+                               #:timeout [timeout +inf.0])
+  (let ([key
+         (cond [(thread? key) (thread-dead-evt key)]
+               [(custodian? key) (make-custodian-box key #t)]
+               [else key])])
+    (cond [(sync/timeout timeout (send pool lease-evt key))
+           => (lambda (result)
+                (when (eq? result 'limit)
+                  (error 'connection-pool-lease "connection pool limit reached"))
+                result)]
+          [else #f])))
