@@ -8,7 +8,9 @@
     (thread
      (lambda ()
        (with-handlers ([exn:fail?
-                        (lambda (e) (set-box! b 'error) (raise e))])
+                        (lambda (e)
+                          (set-box! b 'error)
+                          (when #f (raise e)))])
          (set-box! b
            (connection-pool-lease pool (current-custodian))))))))
 
