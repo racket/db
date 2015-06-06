@@ -47,6 +47,22 @@
           (check-completes (lambda () (disconnect cx)) "disconnect")
           (check-false (connected? cx)))))
 
+    (test-case "kill-safe w/ custodian damage"
+      (let ([c0 (current-custodian)]
+            [c1 (make-custodian)])
+        (let ([cx (parameterize ((current-custodian c1))
+                    (kill-safe-connection (connect-for-test)))])
+          ;; cx's ports (if applicable) are managed by c1
+          (check-true (connected? cx))
+          (custodian-shutdown-all c1)
+          (check-completes (lambda () (connected? cx)) "connected?")
+          ;; kill-safe proxy won't know it's disconnected until a query fails
+          (check-exn #rx"query-value"
+                     (lambda () (query-value cx (select-val "1"))))
+          (check-false (connected? cx))
+          (check-completes (lambda () (disconnect cx)) "disconnect")
+          (check-false (connected? cx)))))
+
     (test-case "connected?, disconnect work w/ kill-thread damage"
       (let ([cx (connect-for-test)])
         (when (is-a? cx locking%)
