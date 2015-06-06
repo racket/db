@@ -33,35 +33,43 @@
            (check-pred symbol? (dbsystem-name sys))))))
 
     (test-case "connected?, disconnect work w/ custodian damage"
-      (let ([c0 (current-custodian)]
-            [c1 (make-custodian)])
-        (let ([cx (parameterize ((current-custodian c1))
-                    (connect-for-test))])
-          ;; cx's ports (if applicable) are managed by c1
-          (check-true (connected? cx))
-          (custodian-shutdown-all c1)
-          (check-completes (lambda () (connected? cx)) "connected?")
-          (when (memq dbsys '(mysql postgresql))
-            ;; wire-based connection is disconnected; it had better know it
-            (check-false (connected? cx)))
-          (check-completes (lambda () (disconnect cx)) "disconnect")
-          (check-false (connected? cx)))))
+      (define c1 (make-custodian))
+      (define cx
+        (parameterize ((current-custodian c1))
+          (connect-for-test)))
+      ;; cx's ports (if applicable) are managed by c1
+      (check-true (connected? cx))
+      (custodian-shutdown-all c1)
+      (check-completes (lambda () (connected? cx)) "connected?")
+      (when (memq dbsys '(mysql postgresql))
+        ;; wire-based connection is disconnected; it had better know it
+        (check-false (connected? cx)))
+      (check-completes (lambda () (disconnect cx)) "disconnect")
+      (check-false (connected? cx)))
 
-    (test-case "kill-safe w/ custodian damage"
-      (let ([c0 (current-custodian)]
-            [c1 (make-custodian)])
-        (let ([cx (parameterize ((current-custodian c1))
-                    (kill-safe-connection (connect-for-test)))])
-          ;; cx's ports (if applicable) are managed by c1
-          (check-true (connected? cx))
-          (custodian-shutdown-all c1)
-          (check-completes (lambda () (connected? cx)) "connected?")
-          ;; kill-safe proxy won't know it's disconnected until a query fails
+    (let ()
+      (define (do-kill-safe-test do-query-after-shutdown?)
+        (define c1 (make-custodian))
+        (define cx
+          (parameterize ((current-custodian c1))
+            (kill-safe-connection (connect-for-test))))
+        (check-true (connected? cx))
+        (custodian-shutdown-all c1)
+        (check-completes (lambda () (connected? cx)) "connected?")
+        (when do-query-after-shutdown?
           (check-exn #rx"query-value"
-                     (lambda () (query-value cx (select-val "1"))))
-          (check-false (connected? cx))
-          (check-completes (lambda () (disconnect cx)) "disconnect")
-          (check-false (connected? cx)))))
+                     (lambda () (query-value cx (select-val "1")))))
+        (check-false (connected? cx))
+        (check-completes (lambda () (disconnect cx)) "disconnect")
+        (check-false (connected? cx)))
+
+      (test-case "kill-safe w/ custodian damage (w/ query)"
+        (do-kill-safe-test #t))
+
+      (test-case "kill-safe w/ custodian damage (w/o query)"
+        ;; Check that kill-safe cx can tell it's disconnected even without
+        ;; doing a query after custodian shutdown.
+        (do-kill-safe-test #f)))
 
     (test-case "connected?, disconnect work w/ kill-thread damage"
       (let ([cx (connect-for-test)])
