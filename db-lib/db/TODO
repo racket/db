@@ -1,4 +1,6 @@
 
+- place proxy: interrupt work & disconnect on client-side custodian shutdown (?)
+
 - postgresql: send no-arg queries without prepare step (?)
 
 - add under-the-hood doc section (eg, debugging, adjusting statement cache)

@@ -37,68 +37,70 @@
 
 (define place-proxy-connection%
   (class* locking% (connection<%>)
-    (init-field channel)
+    (init channel)
+    (field [channel-box (make-custodian-box (current-custodian) channel)])
     (inherit call-with-lock
              call-with-lock*)
     (super-new)
 
-    (define/private (call method-name . args)
-      (call-with-lock method-name (lambda () (call* method-name args #t))))
-    (define/private (call/d method-name . args)
-      (call-with-lock* method-name (lambda () (call* method-name args #f)) #f #f))
-    (define/private (call* method-name args need-connected?)
-      (cond [channel
-             (pchan-put channel (cons method-name args))
-             (let* ([response (pchan-get channel)]
-                    [still-connected? (car response)])
-               (when (not still-connected?) (set! channel #f))
-               (match (cdr response)
-                 [(cons 'values vals)
-                  (apply values (for/list ([val (in-list vals)]) (sexpr->result val)))]
-                 [(list 'error message)
-                  (raise (make-exn:fail message (current-continuation-marks)))]))]
+    (define/private (call method-name who . args)
+      (call-with-lock who (lambda () (call* method-name who args #t))))
+    (define/private (call/d method-name who . args)
+      (call-with-lock* who (lambda () (call* method-name who args #f)) #f #f))
+    (define/private (call* method-name who args need-connected?)
+      (cond [(and channel-box (custodian-box-value channel-box))
+             => (lambda (channel)
+                  (pchan-put channel (cons method-name args))
+                  (let* ([response (pchan-get channel)]
+                         [still-connected? (car response)])
+                    (when (not still-connected?) (set! channel-box #f))
+                    (match (cdr response)
+                      [(cons 'values vals)
+                       (apply values (for/list ([val (in-list vals)]) (sexpr->result val)))]
+                      [(list 'error message)
+                       (raise (make-exn:fail message (current-continuation-marks)))])))]
             [need-connected?
-             (unless channel
-               (error/not-connected method-name))]
+             (error/not-connected who)]
             [else (void)]))
 
     (define/override (connected?)
-      (and channel #t))
+      (let ([channel-box channel-box])
+        (and channel-box (custodian-box-value channel-box) #t)))
 
     (define/public (disconnect)
-      (call/d 'disconnect)
-      (set! channel #f))
+      (call/d 'disconnect 'disconnect)
+      (set! channel-box #f))
 
     (define/public (get-dbsystem) (error 'get-dbsystem "not implemented"))
     (define/public (get-base) this)
 
-    (define/public (query fsym stmt cursor?)
-      (call 'query fsym
+    (define/public (query who stmt cursor?)
+      (call 'query who who
             (match stmt
               [(? string?) (list 'string stmt)]
               [(statement-binding pst params)
                (list 'statement-binding (send pst get-handle) params)])
             cursor?))
-    (define/public (prepare fsym stmt close-on-exec?)
-      (call 'prepare fsym stmt close-on-exec?))
-    (define/public (fetch/cursor fsym cursor fetch-size)
-      (call 'fetch/cursor fsym (cursor-result-extra cursor) fetch-size))
-    (define/public (transaction-status fsym)
-      (call 'transaction-status fsym))
-    (define/public (start-transaction fsym iso option cwt?)
-      (call 'start-transaction fsym iso option cwt?))
-    (define/public (end-transaction fsym mode cwt?)
-      (call 'end-transaction fsym mode cwt?))
-    (define/public (list-tables fsym schema)
-      (call 'list-tables fsym schema))
+    (define/public (prepare who stmt close-on-exec?)
+      (call 'prepare who who stmt close-on-exec?))
+    (define/public (fetch/cursor who cursor fetch-size)
+      (call 'fetch/cursor who who (cursor-result-extra cursor) fetch-size))
+    (define/public (transaction-status who)
+      (call 'transaction-status who who))
+    (define/public (start-transaction who iso option cwt?)
+      (call 'start-transaction who who iso option cwt?))
+    (define/public (end-transaction who mode cwt?)
+      (call 'end-transaction who who mode cwt?))
+    (define/public (list-tables who schema)
+      (call 'list-tables who who schema))
 
     (define/public (free-statement pst need-lock?)
       (start-atomic)
       (let ([handle (send pst get-handle)])
         (send pst set-handle #f)
         (end-atomic)
-        (when channel
-          (call/d 'free-statement handle need-lock?))))
+        (when channel-box
+          (call/d 'free-statement 'free-statement handle need-lock?))))
 
     (define/private (sexpr->result x)
       (match x
