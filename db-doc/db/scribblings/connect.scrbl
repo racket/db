@@ -650,12 +650,12 @@ ODBC's DSNs.
          data-source?]
 @defproc[(odbc-data-source
            [#:dsn dsn (or/c string? #f) @#,absent]
-           [#:database database (or/c string? #f) @#,absent]
            [#:user user (or/c string? #f) @#,absent]
            [#:password password (or/c string? #f) @#,absent]
            [#:notice-handler notice-handler (or/c 'output 'error) @#,absent]
            [#:strict-parameter-types? strict-parameter-types? boolean? @#,absent]
-           [#:character-mode character-mode (or/c 'wchar 'utf-8 'latin-1) @#,absent])
+           [#:character-mode character-mode (or/c 'wchar 'utf-8 'latin-1) @#,absent]
+           [#:use-place use-place boolean? @#,absent])
          data-source?]]]{
 
   Analogues of @racket[postgresql-connect], @racket[mysql-connect],
