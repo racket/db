@@ -85,7 +85,7 @@ structures to and from WKB format is supported by the
 }
 @defstruct*[polygon
             ([exterior linear-ring?]
-             [interior (listof linear-ring?)])]{
+             [interiors (listof linear-ring?)])]{
   Represents an OpenGIS @tt{Polygon}.
 }
 @defstruct*[multi-point ([elements (listof point?)])]{
