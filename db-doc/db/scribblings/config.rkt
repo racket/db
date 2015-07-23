@@ -1,7 +1,6 @@
 #lang racket/base
 (require scribble/manual
          scribble/eval
-         unstable/sandbox
          (for-label racket/base
                     racket/contract))
 (provide (all-defined-out)
