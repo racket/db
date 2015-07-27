@@ -158,6 +158,31 @@
                 (set! integer-datetimes? (equal? value "on"))]
                [else (void)])]))
 
+    ;; async-message-evt : -> (Evt-of Boolean)
+    ;; Returns an evt that becomes ready when input is available from
+    ;; the backend and produces true if any asynchronous notice and
+    ;; notification messages were handled, false otherwise.  Note:
+    ;; every db interaction will cause a "false alarm" returning #f.
+    (define/public (async-message-evt)
+      (guard-evt
+       (lambda ()
+         (let ([inport inport])
+           (and inport
+                (wrap-evt
+                 inport
+                 (lambda (_in)
+                   (call-with-lock*
+                    'async-message-evt
+                    (lambda ()
+                      (let loop ([seen? #f])
+                        (define c (and (char-ready? inport) (peek-char inport)))
+                        (cond [(memv c '(#\N #\A))
+                               (handle-async-message 'async-message-evt (raw-recv))
+                               (loop #t)]
+                              [else seen?])))
+                    #f
+                    #f))))))))
+
     ;; == Connection management
 
     ;; disconnect* : boolean -> void
