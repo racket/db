@@ -4,7 +4,7 @@
          openssl
          db/private/generic/interfaces
          db/private/generic/common
-         unstable/socket
+         racket/unix-socket
          "connection.rkt")
 (provide mysql-connect
          mysql-guess-socket-path
