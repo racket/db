@@ -5,7 +5,6 @@
          ffi/unsafe
          ffi/unsafe/atomic
          ffi/unsafe/custodian
-         unstable/error
          db/private/generic/interfaces
          db/private/generic/common
          db/private/generic/prepared

@@ -3,7 +3,6 @@
          racket/match
          openssl
          openssl/sha1
-         unstable/error
          db/private/generic/interfaces
          db/private/generic/common
          db/private/generic/prepared

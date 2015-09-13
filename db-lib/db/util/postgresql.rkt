@@ -2,7 +2,7 @@
 (require racket/contract/base
          racket/serialize
          racket/string
-         unstable/error
+         db/private/generic/interfaces
          "geometry.rkt")
 
 #|

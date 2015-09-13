@@ -3,7 +3,6 @@
          racket/match
          file/md5
          openssl
-         unstable/error
          db/private/generic/interfaces
          db/private/generic/common
          db/private/generic/sql-data
