@@ -785,7 +785,9 @@ type.
     MySQL SQLSTATE codes}}
   @item{@hyperlink["http://www.sqlite.org/c3ref/c_abort.html"]{
     SQLite error codes}; errors are represented as a symbol based on
-  the error constant's name, such as @racket['busy] for @tt{SQLITE_BUSY}}
+    the error constant's name, such as @racket['busy] for @tt{SQLITE_BUSY};
+    three code are provided in extended form: @racket['ioerr-blocked],
+    @racket['ioerr-locked], and @racket['readonly-rollback].}
   @item{ODBC: see the database system's documentation}
   ]
 
