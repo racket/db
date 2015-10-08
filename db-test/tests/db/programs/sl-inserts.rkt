@@ -1,4 +1,4 @@
-#lang racket
+#lang racket/base
 (require db)
 
 (define db (sqlite3-connect #:database 'memory))
