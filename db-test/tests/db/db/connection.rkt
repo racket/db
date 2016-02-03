@@ -59,8 +59,12 @@
         (when do-query-after-shutdown?
           (check-exn #rx"query-value"
                      (lambda () (query-value cx (select-val "1")))))
+        ;; give mgr time to wait on req channel before asking connected?,
+        ;; since otherwise we might get a cached answer
+        (sync (system-idle-evt))
         (check-false (connected? cx))
         (check-completes (lambda () (disconnect cx)) "disconnect")
+        ;; no need for sync here; cached and forwarded answers same
         (check-false (connected? cx)))
 
       (test-case "kill-safe w/ custodian damage (w/ query)"
