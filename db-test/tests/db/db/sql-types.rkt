@@ -319,6 +319,18 @@
          (when (setup-temp-table c)
            (check-roundtrip/table c "")
            (check-roundtrip/table c "abcde")))))
+    (type-test-case '(tinyint)
+      (call-with-connection
+       (lambda (c)
+         (check-roundtrip c 5)
+         (check-roundtrip c -1)
+         (check-roundtrip c 127)
+         (check-roundtrip c -128)
+         (when (setup-temp-table c)
+           (check-roundtrip/table c 5)
+           (check-roundtrip/table c -1)
+           (check-roundtrip/table c 127)
+           (check-roundtrip/table c -128)))))
     (type-test-case '(smallint)
       (call-with-connection
        (lambda (c)

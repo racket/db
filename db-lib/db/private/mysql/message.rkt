@@ -130,8 +130,11 @@ computed string on the server can be. See also:
 (define (io:read-null-terminated-string port)
   (bytes->string/utf-8 (io:read-null-terminated-bytes port)))
 
-(define (io:read-byte port)
-  (read-byte port))
+(define (io:read-byte port [signed? #f])
+  (cond [signed?
+         (let ([b (read-byte port)])
+           (if (>= b 128) (- b 256) b))]
+        [else (read-byte port)]))
 
 (define (io:read-bytes-as-bytes port n)
   (read-bytes n port))
@@ -663,9 +666,9 @@ computed string on the server can be. See also:
 
   (case type
 
-    ((tiny) (io:read-byte in)) ;; FIXME signed/unsigned
+    ((tiny) (io:read-byte in (not (memq 'unsigned flags))))
     ((short) (io:read-le-int16 in (not (memq 'unsigned flags))))
-    ((int24) (io:read-le-int32 in)) ;; yes, int24 sent in 32 bits; FIXME signed/unsigned
+    ((int24) (io:read-le-int32 in (not (memq 'unsigned flags)))) ;; yes, int24 sent in 32 bits
     ((long) (io:read-le-int32 in (not (memq 'unsigned flags))))
     ((longlong) (io:read-le-int64 in (not (memq 'unsigned flags))))
     ((varchar string var-string blob tiny-blob medium-blob long-blob)
