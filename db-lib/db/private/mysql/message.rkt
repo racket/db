@@ -665,7 +665,7 @@ computed string on the server can be. See also:
 
     ((tiny) (io:read-byte in)) ;; FIXME signed/unsigned
     ((short) (io:read-le-int16 in (not (memq 'unsigned flags))))
-    ((int24) (io:read-le-int24 in)) ;; FIXME signed/unsigned
+    ((int24) (io:read-le-int32 in)) ;; yes, int24 sent in 32 bits; FIXME signed/unsigned
     ((long) (io:read-le-int32 in (not (memq 'unsigned flags))))
     ((longlong) (io:read-le-int64 in (not (memq 'unsigned flags))))
     ((varchar string var-string blob tiny-blob medium-blob long-blob)
