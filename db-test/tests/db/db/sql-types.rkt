@@ -123,8 +123,10 @@
 (define (temp-table-ok?)
   (ANYFLAGS 'postgresql 'mysql))
 
-(define (setup-temp-table c type)
-  (query-exec c (format "create temporary table testing_temp_table (v ~a)" type)))
+(define (setup-temp-table c [type (current-type)])
+  (when (temp-table-ok?)
+    (query-exec c (format "create temporary table testing_temp_table (v ~a)" type)))
+  (temp-table-ok?))
 
 (define (check-roundtrip*/table c value check-equal?)
   (query-exec c "delete from testing_temp_table")
@@ -272,7 +274,10 @@
       (call-with-connection
        (lambda (c)
          (check-roundtrip c #t)
-         (check-roundtrip c #f))))
+         (check-roundtrip c #f)
+         (when (setup-temp-table c)
+           (check-roundtrip/table c #t)
+           (check-roundtrip/table c #f)))))
     (type-test-case '(bytea blob)
       (call-with-connection
        (lambda (c)
@@ -299,7 +304,10 @@
                (let* ([q (format "select cast(repeat('a', ~s) as binary)" N)]
                       [r (query-value c q)])
                  (check-pred bytes? r)
-                 (check-equal? r (make-bytes N (char->integer #\a))))))))))
+                 (check-equal? r (make-bytes N (char->integer #\a)))))))
+         (when (setup-temp-table c)
+           (check-roundtrip/table c #"this is the time to remember")
+           (check-roundtrip/table c #"I am the walrus.")))))
     (type-test-case '(text)
       (call-with-connection
        (lambda (c)
@@ -307,28 +315,47 @@
          (check-roundtrip c "abcde")
          (check-roundtrip c (make-string #e1e6 #\a))
          (check-roundtrip c (make-string #e1e7 #\b))
-         (check-roundtrip c (make-string #e1e8 #\c)))))
+         (check-roundtrip c (make-string #e1e8 #\c))
+         (when (setup-temp-table c)
+           (check-roundtrip/table c "")
+           (check-roundtrip/table c "abcde")))))
     (type-test-case '(smallint)
       (call-with-connection
        (lambda (c)
          (check-roundtrip c 5)
          (check-roundtrip c -1)
          (check-roundtrip c #x7FFF)
-         (check-roundtrip c #x-8000))))
+         (check-roundtrip c #x-8000)
+         (when (setup-temp-table c)
+           (check-roundtrip/table c 1234)))))
     (type-test-case '(integer)
       (call-with-connection
        (lambda (c)
          (check-roundtrip c 5)
          (check-roundtrip c -1)
          (check-roundtrip c #x7FFFFFFF)
-         (check-roundtrip c #x-80000000))))
+         (check-roundtrip c #x-80000000)
+         (when (setup-temp-table c)
+           (check-roundtrip/table c 123456)))))
     (type-test-case '(bigint)
       (call-with-connection
        (lambda (c)
          (check-roundtrip c 5)
          (check-roundtrip c -1)
          (check-roundtrip c (sub1 (expt 2 63)))
-         (check-roundtrip c (- (expt 2 63))))))
+         (check-roundtrip c (- (expt 2 63)))
+         (when (setup-temp-table c)
+           (check-roundtrip/table c 123456)))))
+    (type-test-case '(mediumint)
+      (call-with-connection
+       (lambda (c)
+         (check-roundtrip c 5)
+         (check-roundtrip c -1)
+         (check-roundtrip c 1234)
+         (when (setup-temp-table c)
+           (check-roundtrip/table c 5)
+           (check-roundtrip/table c -1)
+           (check-roundtrip/table c 123456)))))
 
     (type-test-case '(real)
       (call-with-connection
@@ -339,7 +366,10 @@
          (when (supported? 'real-infinities)
            (check-roundtrip c +inf.0)
            (check-roundtrip c -inf.0)
-           (check-roundtrip c +nan.0)))))
+           (check-roundtrip c +nan.0))
+         (when (setup-temp-table c)
+           (check-roundtrip/table c 1.0)
+           (check-roundtrip/table c -5.5)))))
     (type-test-case '(double)
       (call-with-connection
        (lambda (c)
@@ -351,7 +381,10 @@
          (when (supported? 'real-infinities)
            (check-roundtrip c +inf.0)
            (check-roundtrip c -inf.0)
-           (check-roundtrip c +nan.0)))))
+           (check-roundtrip c +nan.0))
+         (when (setup-temp-table c (if (ANYFLAGS 'pg 'ispg) "float8" "double"))
+           (check-roundtrip/table c 1.0)
+           (check-roundtrip/table c -5.5)))))
 
     (unless (ANYFLAGS 'isdb2) ;; "Driver not capable"
       (type-test-case '(numeric decimal)
@@ -378,7 +411,10 @@
              (check-roundtrip c -1/10)
              (check-roundtrip c 1/400000))
            (when (supported? 'numeric-infinities)
-             (check-roundtrip c +nan.0))))))
+             (check-roundtrip c +nan.0))
+           (when (setup-temp-table c (if (ANYFLAGS 'mysql 'ismy) "decimal(40,10)" (current-type)))
+             (check-roundtrip/table c 1234567890)
+             (check-roundtrip/table c 1/2))))))
 
     (type-test-case '(varchar)
       (call-with-connection
@@ -408,7 +444,11 @@
                           (list->string
                            (build-list 800
                                        (lambda (n)
-                                         (integer->char (add1 n))))))))))
+                                         (integer->char (add1 n)))))))
+         (unless (ANYFLAGS 'mysql 'ismy)
+           (when (setup-temp-table c)
+             (for ([str (append some-basic-strings some-intl-strings)])
+               (check-roundtrip/table c str)))))))
 
     (type-test-case '(character)
       (call-with-connection
@@ -424,7 +464,10 @@
        (lambda (c)
          (for ([d+s some-dates])
            (check-roundtrip c (car d+s))
-           (check-value/text c (car d+s) (cadr d+s))))))
+           (check-value/text c (car d+s) (cadr d+s)))
+         (when (setup-temp-table c)
+           (for ([d+s some-dates])
+             (check-roundtrip/table c (car d+s)))))))
     (type-test-case '(time)
       (call-with-connection
        (lambda (c)
@@ -432,13 +475,22 @@
            (unless (and (eq? dbsys 'odbc) (> (sql-time-nanosecond (car t+s)) 0))
              ;; ODBC time has no fractional part
              (check-roundtrip c (car t+s))
-             (check-value/text c (car t+s) (cadr t+s)))))))
+             (check-value/text c (car t+s) (cadr t+s))))
+         (when (setup-temp-table c)
+           (for ([t+s some-times])
+             ;; MySQL (<5.7) does not *store* fractional seconds
+             (when (or (zero? (sql-time-nanosecond (car t+s)))
+                       (not (ANYFLAGS 'mysql 'ismy)))
+               (check-roundtrip/table c (car t+s))))))))
     (type-test-case '(timetz)
       (call-with-connection
        (lambda (c)
          (for ([t+s some-timetzs])
            (check-roundtrip c (car t+s))
-           (check-value/text c (car t+s) (cadr t+s))))))
+           (check-value/text c (car t+s) (cadr t+s)))
+         (when (setup-temp-table c)
+           (for ([t+s some-timetzs])
+             (check-roundtrip/table c (car t+s)))))))
     (type-test-case '(timestamp datetime)
       (call-with-connection
        (lambda (c)
@@ -446,13 +498,24 @@
            (when (or (TESTFLAGS 'postgresql) (sql-timestamp? (car t+s)))
              ;; Only postgresql supports +/-inf.0
              (check-roundtrip c (car t+s))
-             (check-value/text c (car t+s) (cadr t+s)))))))
+             (check-value/text c (car t+s) (cadr t+s))))
+         (when (setup-temp-table c)
+             (for ([t+s some-timestamps])
+               (when (or (TESTFLAGS 'postgresql) (sql-timestamp? (car t+s))) ;; inf only on pg
+                 ;; MySQL (<5.7) does not *store* fractional seconds
+                 (when (or (and (sql-timestamp? (car t+s))
+                                (zero? (sql-timestamp-nanosecond (car t+s))))
+                           (not (ANYFLAGS 'mysql 'ismy)))
+                   (check-roundtrip/table c (car t+s)))))))))
     (type-test-case '(timestamptz)
       (call-with-connection
        (lambda (c)
          (for ([t+s some-timestamptzs])
            (check-roundtrip* c (car t+s) check-timestamptz-equal?)
-           (check-value/text* c (car t+s) (cadr t+s) check-timestamptz-equal? #f)))))
+           (check-value/text* c (car t+s) (cadr t+s) check-timestamptz-equal? #f))
+         (when (setup-temp-table c)
+           (for ([t+s some-timestamptzs])
+             (check-roundtrip*/table c (car t+s) check-timestamptz-equal?))))))
 
     (type-test-case '(interval)
       (call-with-connection
