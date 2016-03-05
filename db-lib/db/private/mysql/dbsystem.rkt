@@ -61,18 +61,30 @@
 
 ;; ========================================
 
+(define DATE-YEAR-MIN 0)
+(define DATE-YEAR-MAX 9999)
+
 (define (check-param fsym param)
-  (unless (or (string? param)
-              (rational? param)
-              (bytes? param)
-              (sql-date? param)
-              (sql-time? param)
-              (sql-timestamp? param)
-              (sql-day-time-interval? param)
-              (sql-bits? param)
-              (geometry2d? param))
-    (error/no-convert fsym "MySQL" "parameter" param))
-  param)
+  (cond [(or (string? param)
+             (rational? param)
+             (bytes? param)
+             (sql-time? param)
+             (sql-day-time-interval? param)
+             (sql-bits? param)
+             (geometry2d? param))
+         param]
+        [(sql-date? param)
+         (unless (<= DATE-YEAR-MIN (sql-date-year param) DATE-YEAR-MAX)
+           (error/no-convert fsym "MySQL" "DATE" param "year out of range"))
+         ;; Other ranges checked by sql-date contract at db/base.rkt
+         param]
+        [(sql-timestamp? param)
+         (unless (<= DATE-YEAR-MIN (sql-timestamp-year param) DATE-YEAR-MAX)
+           (error/no-convert fsym "MySQL" "DATETIME" param "year out of range"))
+         ;; See comment above for sql-date
+         param]
+        [else
+         (error/no-convert fsym "MySQL" "parameter" param)]))
 
 ;; ========================================
 
