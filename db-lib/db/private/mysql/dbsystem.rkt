@@ -5,7 +5,7 @@
          db/private/generic/common
          db/private/generic/sql-data
          "../../util/private/geometry.rkt"
-         (only-in "message.rkt" field-dvec->typeid field-dvec->flags))
+         (only-in "message.rkt" length-code->bytes field-dvec->typeid field-dvec->flags))
 (provide dbsystem
          classify-my-sql)
 
@@ -64,25 +64,44 @@
 (define DATE-YEAR-MIN 0)
 (define DATE-YEAR-MAX 9999)
 
+;; A CheckedParam is (cons type-symbol bytes-or-value)
+;; Three variants, depending on the stage of parameter processing:
+;; - v1, after check-param: All variable-length values are converted
+;;   to bytes here, so that connection can decide what to send in long
+;;   data packets.
+;; - v2, after by connection sends long data: Payloads already sent as
+;;   long-data are replaced by #f.
+
+;; check-param : Symbol Any -> CheckParam-v1
 (define (check-param fsym param)
-  (cond [(or (string? param)
-             (rational? param)
-             (bytes? param)
-             (sql-time? param)
-             (sql-day-time-interval? param)
-             (sql-bits? param)
-             (geometry2d? param))
-         param]
+  (cond [(sql-null? param)
+         (cons 'null #f)]
+        [(string? param)
+         (cons 'var-string (string->bytes/utf-8 param))]
+        [(bytes? param)
+         (cons 'blob param)]
+        [(int64? param)
+         (cons 'longlong param)]
+        [(rational? param)
+         (cons 'double param)]
+        [(or (sql-time? param) (sql-day-time-interval? param))
+         (cons 'time param)]
+        [(sql-bits? param)
+         (let-values ([(len bs start) (align-sql-bits param 'right)])
+           (cons 'bit (bytes-append (length-code->bytes (- (bytes-length bs) start)) bs)))]
+        [(geometry2d? param)
+         (cons 'geometry
+               (geometry->bytes 'mysql-geometry->bytes param #:big-endian? #f #:srid? #t))]
         [(sql-date? param)
          (unless (<= DATE-YEAR-MIN (sql-date-year param) DATE-YEAR-MAX)
            (error/no-convert fsym "MySQL" "DATE" param "year out of range"))
          ;; Other ranges checked by sql-date contract at db/base.rkt
-         param]
+         (cons 'date param)]
         [(sql-timestamp? param)
          (unless (<= DATE-YEAR-MIN (sql-timestamp-year param) DATE-YEAR-MAX)
            (error/no-convert fsym "MySQL" "DATETIME" param "year out of range"))
          ;; See comment above for sql-date
-         param]
+         (cons 'timestamp param)]
         [else
          (error/no-convert fsym "MySQL" "parameter" param)]))
 

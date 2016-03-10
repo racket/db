@@ -10,7 +10,8 @@
          "message.rkt"
          "dbsystem.rkt")
 (provide connection%
-         mysql-password-hash)
+         mysql-password-hash
+         MAX-ALLOWED-PACKET)
 
 (define MAX-ALLOWED-PACKET (expt 2 30))
 
@@ -33,6 +34,8 @@
              prepare1
              check/invalidate-cache)
 
+    (init-field [max-allowed-packet MAX-ALLOWED-PACKET])
+
     (super-new)
 
     ;; ========================================
@@ -51,6 +54,11 @@
     errors and breaks.
     |#
 
+    ;; msg-buffer : (Listof (cons Message Nat))
+    ;; The stored packet number might not be the actual packet number because of
+    ;; large-packet splitting (see write-packet). We assume splitting only
+    ;; happens for command packets, which get an exchange to themselves, so we
+    ;; don't do any checks or adjustments.
     (define msg-buffer null)
     (define next-msg-num 0)
 
@@ -59,7 +67,7 @@
 
     ;; buffer-message : message -> void
     (define/private (buffer-message msg)
-      (dprintf "  >> ~s\n" msg)
+      (dprintf "  >> #~s ~.s\n" next-msg-num msg)
       (set! msg-buffer (cons (cons msg next-msg-num) msg-buffer))
       (set! next-msg-num (add1 next-msg-num)))
 
@@ -104,7 +112,7 @@
         (error/comm fsym))
       (let-values ([(msg-num next) (parse-packet inport expectation field-dvecs)])
         (set! next-msg-num (add1 msg-num))
-        (dprintf "  << ~s\n" next)
+        (dprintf "  << #~s ~.s\n" msg-num next)
         ;; Update transaction status (see Transactions below)
         (when (ok-packet? next)
           (set-tx-status! fsym (bitwise-bit-set? (ok-packet-server-status next) 0)))
@@ -208,7 +216,7 @@
       (let loop ([auth-plugin auth-plugin] [scramble scramble] [first? #t])
         (define (auth data)
           (if first?
-              (make-client-auth-packet capabilities MAX-ALLOWED-PACKET 'utf8-general-ci
+              (make-client-auth-packet capabilities max-allowed-packet 'utf8-general-ci
                                        username data dbname auth-plugin)
               (make-auth-followup-packet data)))
         (cond [(equal? auth-plugin "mysql_native_password")
@@ -272,7 +280,7 @@
             (free-statement pst #f))))
       (let ([wbox (and warnings? (box 0))])
         (fresh-exchange)
-        (query1:enqueue stmt cursor?)
+        (query1:enqueue fsym stmt cursor?)
         (begin0 (call-with-sync fsym
                   (lambda () (query1:collect fsym stmt (not (string? stmt)) cursor? wbox)))
           (when (and warnings? (not (zero? (unbox wbox))))
@@ -298,61 +306,67 @@
                (check-statement fsym (send pst bind fsym null) #f))]
             [else stmt]))
 
-    ;; query1:enqueue : statement -> void
-    (define/private (query1:enqueue stmt cursor?)
+    ;; query1:enqueue : Symbol Statement -> void
+    (define/private (query1:enqueue fsym stmt cursor?)
       (cond [(statement-binding? stmt)
              (let* ([pst (statement-binding-pst stmt)]
                     [id (send pst get-handle)]
                     [params (statement-binding-params stmt)]
                     [param-count (length params)]
-                    [null-map (map sql-null? params)]
+                    [null-map (for/list ([p (in-list params)]) (eq? (car p) 'null))]
                     [flags (if cursor? '(cursor/read-only) '())])
-               ;; Assume max_packet_length = 16M = 2^24,
-               ;; overhead of 20 bytes for other packet fields.
-               ;; Oversimplified param size estimate:
-               ;;   - 20 bytes per param (fixed size <= 20, string length code <= 20)
-               ;;   - bytes-length for bytes, 4*string-length for strings
-               ;; Use long data for any param that takes more than its "fair share".
-               (define (param-size p)
-                 (cond [(string? p) (* 4 (string-length p))]
-                       [(bytes? p) (bytes-length p)]
-                       [else 0]))
-               (let* ([space (- (expt 2 24) 20 (* 20 param-count))]
-                      [var-param-size (for/sum ([p (in-list params)]) (param-size p))])
-                 (cond [(and (< var-param-size space))
-                        (buffer-message (make-execute-packet id flags null-map params))]
-                       [else
-                        (let* ([var-param-count
-                                (for/sum ([p (in-list params)]
-                                          #:when (or (string? p) (bytes? p)))
-                                  1)]
-                               [fair-share (floor (/ space (max 1 var-param-count)))]
-                               [param+evict-list
-                                (for/list ([p (in-list params)])
-                                  (cons p (> (param-size p) fair-share)))]
-                               [short-params
-                                (for/list ([p+e (in-list param+evict-list)])
-                                  (let ([p (car p+e)])
-                                    (if (cdr p+e)
-                                        (if (string? p) 'long-string 'long-binary)
-                                        p)))])
-                          (for ([p+e (in-list param+evict-list)]
-                                [param-id (in-naturals)]
-                                #:when (cdr p+e))
-                            (let* ([p (car p+e)]
-                                   [pb (if (string? p) (string->bytes/utf-8 p) p)]
-                                   [pblen (bytes-length pb)]
-                                   [CHUNK #e1e6])
-                              (let chunkloop ([sent 0])
-                                (when (< sent pblen)
-                                  (let ([next (min pblen (+ sent CHUNK))])
-                                    (buffer-message
-                                     (make-long-data-packet id param-id (subbytes pb sent next)))
-                                    (fresh-exchange)
-                                    (chunkloop next))))))
-                          (buffer-message (make-execute-packet id flags null-map short-params)))])))]
+               ;; params is (Listof CheckedParam-v1)
+
+               ;; Ideally, we would just generate a single execute packet with all param values.
+               ;; Unfortunately, a fragmented execute packet (see write-packet) seems to result
+               ;; in corrupted data (even if max_allowed_packet is larger). So try to send
+               ;; large params as send-long-data packets, if possible.
+               (define MAX-SIZE (- (min max-allowed-packet MAX-PAYLOAD) 20))
+
+               ;; Oversimplified packet size estimate:
+               ;;   - 20 bytes overhead for other packet fields
+               ;;   - binary-datum-size of params
+               (define (param-size p) (binary-datum-size (car p) (cdr p)))
+               ;; Only certain types (var-string and blob) can be sent as long-data.
+               (define (can-long? p) (and (memq (car p) '(var-string blob)) #t))
+               (define size0 (for/sum ([p (in-list params)]) (param-size p)))
+               (cond [(< size0 MAX-SIZE)
+                      (buffer-message (make-execute-packet id flags null-map params))]
+                     [else
+                      (define long-opps ;; (Listof (list* Nat Nat CPv1)), sorted biggest first
+                        (sort (for/list ([p (in-list params)] [param-id (in-naturals)]
+                                         #:when (can-long? p))
+                                (list* (param-size p) param-id p))
+                              > #:key car))
+                      (define long-params ;; Hash[Nat => CPv1]
+                        (let loop ([long-opps long-opps] [size size0])
+                          (cond [(< size MAX-SIZE)
+                                 #hash()]
+                                [(null? long-opps)
+                                 (error/params/max-packet fsym size0 MAX-SIZE max-allowed-packet)]
+                                [else
+                                 (define opp (car long-opps))
+                                 (hash-set (loop (cdr long-opps) (- size (car opp)))
+                                           (cadr opp) (cddr opp))])))
+                      (for ([(long-param-id long-param) (in-hash long-params)])
+                        (query1:send-long-data-param id long-param-id (cdr long-param)))
+                      (define short-params ;; (Listof CheckedParam-v2)
+                        (for/list ([p (in-list params)] [param-id (in-naturals)])
+                          (if (hash-ref long-params param-id #f) (cons (car p) #f) p)))
+                      (buffer-message (make-execute-packet id flags null-map short-params))]))]
             [else ;; string
              (buffer-message (make-command-packet 'query stmt))]))
+
+    ;; query1:send-long-data-param : Nat Nat Bytes -> Void
+    (define/private (query1:send-long-data-param id param-id param)
+      (define pblen (bytes-length param))
+      (define CHUNK (- max-allowed-packet 10))
+      (let chunkloop ([start 0])
+        (when (< start pblen)
+          (let ([next (min pblen (+ start CHUNK))])
+            (buffer-message (make-long-data-packet id param-id (subbytes param start next)))
+            (fresh-exchange)
+            (chunkloop next)))))
 
     ;; query1:collect : symbol bool -> QueryResult stream
     (define/private (query1:collect fsym stmt binary? cursor? wbox)
@@ -671,6 +685,15 @@
                       (cons 'code code)
                       (cons 'message message)))
   (raise-sql-error who code message props))
+
+(define (error/params/max-packet fsym size MAX-SIZE max-allowed-packet)
+  (error fsym "parameters excluding TEXT and BLOB are too large (protocol limit)~a"
+         (cond [(> size MAX-SIZE)
+                ";\n parameters exceed execute-packet payload size"]
+               [else
+                (format ";\n ~a\n  max-allowed-packet: ~s"
+                        "parameters exceed client max-allowed-packet parameter"
+                        max-allowed-packet)])))
 
 ;; ========================================
 
