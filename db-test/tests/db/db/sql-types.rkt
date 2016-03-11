@@ -67,21 +67,23 @@
            (check-equal? (query-value c q value)
                          value))]
         [(ANYFLAGS 'mysql 'ismy)
-         ;; FIXME: can do better once prepare supports types
          (let ([stmt
                 (case (current-type)
-                  ((varchar) "select ?") ;;  "select cast(? as char)" gives ODBC problems
+                  ((varchar text) "select ?") ;;  "select cast(? as char)" gives ODBC problems
                   ((blob) "select cast(? as binary)") ;; ???
-                  ((integer) "select cast(? as signed integer)")
-                  ((real) "select (? * 1.0)")
+                  ((integer tinyint smallint mediumint bigint)
+                   "select cast(? as signed integer)")
+                  ((double real) "select (? * 1.0)")
                   ((decimal numeric) "select cast(? as decimal(40,10))")
                   ((date) "select cast(? as date)")
                   ((time) "select cast(? as time)")
                   ((datetime) "select cast(? as datetime)")
+                  ((json geometry) "select ?")
                   ;; FIXME: more types
                   (else #f))])
-           (when stmt
-             (check-equal? (query-value c stmt value) value)))]
+           (unless stmt
+             (error 'check-roundtrip "unsupported type: ~e" (current-type)))
+           (check-equal? (query-value c stmt value) value))]
         [(eq? dbsys 'sqlite3) ;; no ODBC-sqlite3, too painful
          (check-equal? (query-value c "select ?" value) value)]
         [(ANYFLAGS 'isora 'isdb2)
@@ -230,8 +232,9 @@
     (,(sql-timestamp 2012 02 14 12 34 56 0 #f) "2012-02-14 12:34:56")
     (,(sql-timestamp 2000 01 01 12 34 56 123456000 #f) "2000-01-01 12:34:56.123456")
     (,(sql-timestamp 1776 07 04 12 34 56 123456000 #f) "1776-07-04 12:34:56.123456")
-    (,(sql-timestamp 2012 02 14 12 34 56 123456000 #f) "2012-02-14 12:34:56.123456")
-    (-inf.0 "-infinity")
+    (,(sql-timestamp 2012 02 14 12 34 56 123456000 #f) "2012-02-14 12:34:56.123456")))
+(define some-pg-timestamps
+  `((-inf.0 "-infinity")
     (+inf.0 "infinity")))
 
 (define some-timestamptzs
@@ -483,16 +486,15 @@
     (type-test-case '(time)
       (call-with-connection
        (lambda (c)
+         (define frac-seconds-ok? (ANYFLAGS 'postgresql))
          (for ([t+s some-times])
-           (unless (and (eq? dbsys 'odbc) (> (sql-time-nanosecond (car t+s)) 0))
-             ;; ODBC time has no fractional part
+           (when (or frac-seconds-ok? (zero? (sql-time-nanosecond (car t+s))))
              (check-roundtrip c (car t+s))
              (check-value/text c (car t+s) (cadr t+s))))
          (when (setup-temp-table c)
            (for ([t+s some-times])
              ;; MySQL (<5.7) does not *store* fractional seconds
-             (when (or (zero? (sql-time-nanosecond (car t+s)))
-                       (not (ANYFLAGS 'mysql 'ismy)))
+             (when (or frac-seconds-ok? (zero? (sql-time-nanosecond (car t+s))))
                (check-roundtrip/table c (car t+s))))))))
     (type-test-case '(timetz)
       (call-with-connection
@@ -506,19 +508,20 @@
     (type-test-case '(timestamp datetime)
       (call-with-connection
        (lambda (c)
+         (define frac-seconds-ok? (ANYFLAGS 'postgresql))
          (for ([t+s some-timestamps])
-           (when (or (TESTFLAGS 'postgresql) (sql-timestamp? (car t+s)))
-             ;; Only postgresql supports +/-inf.0
+           (when (or frac-seconds-ok? (zero? (sql-timestamp-nanosecond (car t+s))))
+             (check-roundtrip c (car t+s))
+             (check-value/text c (car t+s) (cadr t+s))))
+         (when (ANYFLAGS 'postgresql) ;; Only postgresql supports +/-inf.0
+           (for ([t+s some-pg-timestamps])
              (check-roundtrip c (car t+s))
              (check-value/text c (car t+s) (cadr t+s))))
          (when (setup-temp-table c)
-             (for ([t+s some-timestamps])
-               (when (or (TESTFLAGS 'postgresql) (sql-timestamp? (car t+s))) ;; inf only on pg
-                 ;; MySQL (<5.7) does not *store* fractional seconds
-                 (when (or (and (sql-timestamp? (car t+s))
-                                (zero? (sql-timestamp-nanosecond (car t+s))))
-                           (not (ANYFLAGS 'mysql 'ismy)))
-                   (check-roundtrip/table c (car t+s)))))))))
+           (for ([t+s some-timestamps])
+             ;; MySQL (<5.7) does not *store* fractional seconds
+             (when (or frac-seconds-ok? (zero? (sql-timestamp-nanosecond (car t+s))))
+               (check-roundtrip/table c (car t+s))))))))
     (type-test-case '(timestamptz)
       (call-with-connection
        (lambda (c)
@@ -540,14 +543,15 @@
              (when (memq dbsys '(postgresql))
                (check-value/text c (car i+s) (cadr i+s))))))))
 
-    (type-test-case '(varbit bit)
-      (call-with-connection
-       (lambda (c)
-         (for ([s (list "1011"
-                        "000000"
-                        (make-string 30 #\1)
-                        (string-append (make-string 10 #\1) (make-string 20 #\0)))])
-           (check-roundtrip* c (string->sql-bits s) check-bits-equal?)))))
+    (unless (ANYFLAGS 'mysql)
+      (type-test-case '(varbit bit)
+        (call-with-connection
+         (lambda (c)
+           (for ([s (list "1011"
+                          "000000"
+                          (make-string 30 #\1)
+                          (string-append (make-string 10 #\1) (make-string 20 #\0)))])
+             (check-roundtrip* c (string->sql-bits s) check-bits-equal?))))))
 
     (type-test-case '(point geometry)
       (call-with-connection
