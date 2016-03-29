@@ -379,33 +379,41 @@
                               (status . ,status)
                               (message . ,message)))]
           [(struct result-set-header-packet (fields extra))
-           (let* ([field-dvecs (query1:get-fields fsym binary?)])
-             (if cursor?
-                 (vector 'cursor field-dvecs (statement-binding-pst stmt))
-                 (vector 'rows
-                         field-dvecs
-                         (query1:get-rows fsym field-dvecs binary? wbox #f))))])))
+           (define mbox (box #f)) ;; more resultsets?
+           (define field-dvecs (query1:get-fields fsym mbox))
+           (cond [cursor?
+                  (vector 'cursor field-dvecs (statement-binding-pst stmt))]
+                 [else
+                  (define rows (query1:get-rows fsym field-dvecs binary? wbox #f mbox))
+                  (define result (vector 'rows field-dvecs rows))
+                  (cond [(unbox mbox)
+                         (cons result (query1:collect fsym stmt binary? cursor? wbox))]
+                        [else result])])])))
 
-    (define/private (query1:get-fields fsym binary?)
+    (define/private (query1:get-fields fsym mbox)
       (let ([r (recv fsym 'field)])
         (match r
           [(? field-packet?)
-           (cons (parse-field-dvec r) (query1:get-fields fsym binary?))]
+           (cons (parse-field-dvec r) (query1:get-fields fsym mbox))]
           [(struct eof-packet (warning status))
+           (when (and mbox (bitwise-bit-set? status MORE-RESULTS-EXIST-BIT))
+             (set-box! mbox #t))
            null])))
 
-    (define/private (query1:get-rows fsym field-dvecs binary? wbox end-box)
+    (define/private (query1:get-rows fsym field-dvecs binary? wbox end-box mbox)
       ;; Note: binary? should always be #t, unless force-prepare-sql? misses something.
       (let ([r (recv fsym (if binary? 'binary-data 'data) field-dvecs)])
         (match r
           [(struct row-data-packet (data))
-           (cons data (query1:get-rows fsym field-dvecs binary? wbox end-box))]
+           (cons data (query1:get-rows fsym field-dvecs binary? wbox end-box mbox))]
           [(struct binary-row-data-packet (data))
-           (cons data (query1:get-rows fsym field-dvecs binary? wbox end-box))]
+           (cons data (query1:get-rows fsym field-dvecs binary? wbox end-box mbox))]
           [(struct eof-packet (warnings status))
            (when wbox (set-box! wbox warnings))
-           (when (and end-box (bitwise-bit-set? status 7)) ;; 'last-row-sent
+           (when (and end-box (bitwise-bit-set? status LAST-ROW-SENT-BIT))
              (set-box! end-box #t))
+           (when (and mbox (bitwise-bit-set? status MORE-RESULTS-EXIST-BIT))
+             (set-box! mbox #t))
            null])))
 
     (define/private (query1:process-result fsym result)
@@ -417,7 +425,11 @@
         [(vector 'cursor field-dvecs pst)
          (cursor-result (map field-dvec->field-info field-dvecs)
                         pst
-                        (list field-dvecs (box #f)))]))
+                        (list field-dvecs (box #f)))]
+        [(cons result1 (vector 'command _))
+         (query1:process-result fsym result1)]
+        [(cons _ _)
+         (error fsym "multiple result sets not allowed")]))
 
     ;; == Cursor
 
@@ -436,7 +448,7 @@
                        (fresh-exchange)
                        (buffer-message (make-fetch-packet (send pst get-handle) fetch-size))
                        (begin0 (call-with-sync fsym
-                                 (lambda () (query1:get-rows fsym field-dvecs #t wbox end-box)))
+                                 (lambda () (query1:get-rows fsym field-dvecs #t wbox end-box #f)))
                          (when (not (zero? (unbox wbox)))
                            (fetch-warnings fsym))))]))))))
 
@@ -675,7 +687,9 @@
     transactions
     protocol-41
     secure-connection
-    plugin-auth))
+    plugin-auth
+    multi-results
+    ps-multi-results))
 
 ;; raise-backend-error : symbol ErrorPacket -> raises exn
 (define (raise-backend-error who r)

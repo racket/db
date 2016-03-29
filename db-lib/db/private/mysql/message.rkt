@@ -38,6 +38,9 @@ Based on protocol documentation here:
          length-code->bytes
          binary-datum-size
 
+         LAST-ROW-SENT-BIT
+         MORE-RESULTS-EXIST-BIT
+
          supported-result-typeid?
          parse-field-dvec
          field-dvec->name
@@ -919,6 +922,9 @@ computed string on the server can be. See also:
     (#x1000  . ps-out-params)
     (#x2000  . in-transaction-readonly)
     (#x4000  . session-state-changed)))
+
+(define LAST-ROW-SENT-BIT 7)
+(define MORE-RESULTS-EXIST-BIT 3)
 
 (define commands/decoding
   '((#x00 . sleep)
