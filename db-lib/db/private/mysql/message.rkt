@@ -900,16 +900,25 @@ computed string on the server can be. See also:
     (#x8000  . secure-connection)
     (#x10000 . multi-statements)
     (#x20000 . multi-results)
-    (#x40000 . ps-multi-statements) ;; ???
-    (#x80000 . plugin-auth)))
+    (#x40000 . ps-multi-results) ;; ???
+    (#x80000 . plugin-auth)
+    (#x100000 . connect-attrs)
+    (#x200000 . client-plugin-auth-lenenc-client-data)
+    (#x400000 . client-can-handle-expired-passwords)
+    (#x800000 . client-session-track)
+    (#x1000000 . client-deprecate-eof)))
 (define server-flags/encoding
   (invert-alist server-flags/decoding))
 
 (define server-status-flags/decoding
   '((#x1     . in-transaction)
     (#x2     . auto-commit)
-    (64      . cursor-exists)
-    (128     . last-row-sent)))
+    (#x8     . more-results-exist)
+    (#x40    . cursor-exists)
+    (#x80    . last-row-sent)
+    (#x1000  . ps-out-params)
+    (#x2000  . in-transaction-readonly)
+    (#x4000  . session-state-changed)))
 
 (define commands/decoding
   '((#x00 . sleep)
