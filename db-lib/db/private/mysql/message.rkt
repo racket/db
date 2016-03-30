@@ -106,9 +106,6 @@ computed string on the server can be. See also:
         [(<= n #xFFFFFF)
          (io:write-byte port 253)
          (io:write-le-int24 port n)]
-        [(<= n #xFFFFFFFF)
-         (io:write-byte port 253)
-         (io:write-le-int32 port n)]
         [else
          (io:write-byte port 254)
          (io:write-le-int64 port n)]))
