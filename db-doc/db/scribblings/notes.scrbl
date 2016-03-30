@@ -17,9 +17,8 @@ This section discusses issues related to specific database systems.
 PostgreSQL and MySQL servers are sometimes configured by default to
 listen only on local sockets (also called ``unix domain
 sockets''). This library provides support for communication over local
-sockets on Linux (x86 and x86-64) and Mac OS X. If local socket
-communication is not available, the server must be reconfigured to
-listen on a TCP port.
+sockets on Linux and Mac OS X. If local socket communication is not
+available, the server must be reconfigured to listen on a TCP port.
 
 The socket file for a PostgreSQL server is located in the directory
 specified by the @tt{unix_socket_directory} variable in the
@@ -111,6 +110,12 @@ plugins}. The only plugins currently supported by this library are
 @tt{mysql_native_password} (the default) and @tt{mysql_old_password},
 which corresponds to the password authentication mechanisms used since
 version 4.1 and before 4.1, respectively.
+
+
+@section{MySQL @tt{CALL}ing Stored Procedures}
+
+MySQL @tt{CALL} statements can be executed only if they return at most
+one result set and contain no @tt{OUT} or @tt{INOUT} parameters.
 
 
 @section[#:tag "sqlite3-requirements"]{SQLite Requirements}

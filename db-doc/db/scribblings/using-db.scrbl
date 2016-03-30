@@ -5,7 +5,7 @@
           racket/sandbox
           racket/runtime-path
           "config.rkt"
-          (for-label db db/util/testing racket/dict web-server/lang/web))
+          (for-label db db/util/testing racket/dict web-server/lang/web openssl))
 
 @(define-runtime-path log-file "log-for-using-db.rktd")
 @(define the-eval (make-pg-eval log-file #f))
@@ -273,6 +273,46 @@ such text is often stored in a database. This issue is mitigated by
 using structured markup representations like SXML or X-expressions
 (xexprs), since they automatically escape ``markup'' characters found
 in embedded text.
+
+
+@subsection[#:tag "dbsec-connect"]{Making Database Connections Securely}
+
+When connecting to a database server over a network, use TLS/SSL and take the
+steps necessary to use it securely. Without TLS, your data and connection
+credentials are exposed to any attackers with access to the network. The
+password-hashing schemes used by PostgreSQL and MySQL are
+@hyperlink["https://codahale.com/how-to-safely-store-a-password/"]{insufficient} to
+@hyperlink["http://security.stackexchange.com/questions/211/how-to-securely-hash-passwords"]{protect}
+short or common passwords.
+
+Both @racket[postgresql-connect] and @racket[mysql-connect] support TLS; connect
+with @racket[#:ssl 'yes] and @racket[#:ssl-context _secure-context], where
+
+@itemlist[
+
+@item{If the server has a certificate issued by a well-known, trusted
+certificate authority (CA), you can probably just use
+@racket[(ssl-secure-client-context)] with the default verification sources
+managed by your operating system.}
+
+@item{Otherwise, you must create a context that trusts your server's
+certificate. Obtain the server's certificate or the certificate of its CA as a
+PEM file; suppose the file is located at @racket["/path/to/server-cert.pem"].
+Create the context as follows:
+
+@racketblock[
+(parameterize ((ssl-default-verify-sources
+                (list "/path/to/server-cert.pem")))
+  (ssl-secure-client-context))
+]
+
+See also @racket[ssl-load-verify-source!] for other kinds of verification
+sources.}
+
+]
+
+For ODBC connections, as always, consult the back end and ODBC driver
+documentation.
 
 
 @;{============================================================}

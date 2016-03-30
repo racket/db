@@ -39,7 +39,7 @@ Base connections are made using the following functions.
                    boolean? #f]
                   [#:ssl ssl (or/c 'yes 'optional 'no) 'no]
                   [#:ssl-context ssl-context ssl-client-context?
-                   (ssl-make-client-context 'sslv3)]
+                   (ssl-make-client-context)]
                   [#:notice-handler notice-handler
                    (or/c 'output 'error output-port?
                          (-> string? string? any))
@@ -80,15 +80,10 @@ Base connections are made using the following functions.
   connection. If the server refuses SSL, the connection raises an
   exception if @racket[ssl] was set to @racket['yes] or continues with
   an unencrypted connection if @racket[ssl] was set to
-  @racket['optional]. By default, SSL provides encryption but does not
-  verify the identity of the server (see
-  @hyperlink["http://www.postgresql.org/docs/9.0/static/libpq-ssl.html"]{this
-  explanation}). Host verification can be required via the
-  @racket[ssl-context] argument; see @racket[ssl-set-verify!]. Some
-  servers use SSL certificates to authenticate clients; see
-  @racket[ssl-load-certificate-chain!] and
+  @racket['optional]. Some servers use SSL certificates to
+  authenticate clients; see @racket[ssl-load-certificate-chain!] and
   @racket[ssl-load-private-key!]. SSL may only be used with TCP
-  connections, not with local sockets.
+  connections, not with local sockets.  See also @secref["dbsec-connect"].
 
   The @racket[notice-handler] is called on notice messages received
   asynchronously from the server. A common example is notice of an
@@ -149,7 +144,7 @@ Base connections are made using the following functions.
                   [#:socket socket (or/c path-string? #f) #f]
                   [#:ssl ssl (or/c 'yes 'optional 'no) 'no]
                   [#:ssl-context ssl-context ssl-client-context?
-                   (ssl-make-client-context 'tls)]
+                   (ssl-make-client-context)]
                   [#:password password (or/c string? #f) #f]
                   [#:notice-handler notice-handler
                    (or/c 'output 'error output-port?
