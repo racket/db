@@ -49,7 +49,7 @@
                           [else (let ([server (or server "localhost")]
                                       [port (or port 5432)])
                                   (tcp-connect server port))])])
-        (send c attach-to-ports in out ssl ssl-context)
+        (send c attach-to-ports in out ssl ssl-context (and (not socket) (or server "localhost")))
         (send c start-connection-protocol database user password)
         c))))
 

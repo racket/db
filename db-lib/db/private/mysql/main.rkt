@@ -44,7 +44,8 @@
                  [port (or port 3306)])
              (let-values ([(in out) (tcp-connect server port)])
                (send c attach-to-ports in out)))])
-    (send c start-connection-protocol database user password ssl ssl-context)
+    (send c start-connection-protocol database user password ssl ssl-context
+          (and (not socket) (or server "localhost")))
     c))
 
 ;; make-print-notification : output-port -> number string -> void

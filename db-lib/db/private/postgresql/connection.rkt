@@ -633,7 +633,7 @@
     (super-new)
 
     ;; attach-to-ports : input-port output-port -> void
-    (define/override (attach-to-ports in out [ssl 'no] [ssl-context #f])
+    (define/override (attach-to-ports in out [ssl 'no] [ssl-context #f] [hostname #f])
       (with-handlers ([(lambda _ #t)
                        (lambda (e)
                          (close-input-port in)
@@ -650,6 +650,7 @@
                 (void (read-byte in))
                 (let-values ([(sin sout)
                               (ports->ssl-ports in out
+                                                #:hostname hostname
                                                 #:mode 'connect
                                                 #:context ssl-context
                                                 #:close-original? #t)])

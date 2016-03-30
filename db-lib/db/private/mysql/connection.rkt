@@ -185,7 +185,7 @@
       (set! outport out))
 
     ;; start-connection-protocol : string/#f string string/#f -> void
-    (define/public (start-connection-protocol dbname username password ssl ssl-context)
+    (define/public (start-connection-protocol dbname username password ssl ssl-context hostname)
       (fresh-exchange)
       (let ([r (recv 'mysql-connect 'handshake)])
         (match r
@@ -204,6 +204,7 @@
              (send-message (make-abbrev-client-auth-packet wanted-capabilities))
              (let-values ([(sin sout)
                            (ports->ssl-ports inport outport
+                                             #:hostname hostname
                                              #:mode 'connect
                                              #:context ssl-context
                                              #:close-original? #t)])
