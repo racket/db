@@ -296,7 +296,7 @@
       (check-roundtrip #f))
 
     (type-test-case '(bytea blob)
-      (setup-temp-table)
+      (unless (FLAG 'mysql) (setup-temp-table)) ;; FIXME: add table tests for mysql blob types
       (check-roundtrip #"this is the time to remember")
       (check-roundtrip #"that's the way it is")
       (check-roundtrip (list->bytes (build-list 256 values)))
@@ -322,7 +322,7 @@
                 (check-equal? r (make-bytes N (char->integer #\a)))))))))
 
     (type-test-case '(text)
-      (setup-temp-table)
+      (unless (FLAG 'mysql) (setup-temp-table)) ;; FIXME: add table tests for mysql text types
       (check-roundtrip "")
       (check-roundtrip "abcde")
       (check-roundtrip (make-string #e1e6 #\a))
