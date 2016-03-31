@@ -288,12 +288,14 @@
 
 (define test
   (test-suite "SQL types (roundtrip, etc)"
+
     (type-test-case '(bool boolean)
       (check-roundtrip #t)
       (check-roundtrip #f)
       (when (setup-temp-table)
         (check-table-rt #t)
         (check-table-rt #f)))
+
     (type-test-case '(bytea blob)
       (check-roundtrip #"this is the time to remember")
       (check-roundtrip #"that's the way it is")
@@ -322,6 +324,7 @@
       (when (setup-temp-table)
         (check-table-rt #"this is the time to remember")
         (check-table-rt #"I am the walrus.")))
+
     (type-test-case '(text)
       (check-roundtrip "")
       (check-roundtrip "abcde")
@@ -331,6 +334,7 @@
       (when (setup-temp-table)
         (check-table-rt "")
         (check-table-rt "abcde")))
+
     (type-test-case '(tinyint)
       (check-roundtrip 5)
       (check-roundtrip -1)
@@ -341,6 +345,7 @@
         (check-table-rt -1)
         (check-table-rt 127)
         (check-table-rt -128)))
+
     (type-test-case '(smallint)
       (check-roundtrip 5)
       (check-roundtrip -1)
@@ -348,6 +353,7 @@
       (check-roundtrip #x-8000)
       (when (setup-temp-table)
         (check-table-rt 1234)))
+
     (type-test-case '(integer)
       (check-roundtrip 5)
       (check-roundtrip -1)
@@ -355,6 +361,7 @@
       (check-roundtrip #x-80000000)
       (when (setup-temp-table)
         (check-table-rt 123456)))
+
     (type-test-case '(bigint)
       (check-roundtrip 5)
       (check-roundtrip -1)
@@ -362,6 +369,7 @@
       (check-roundtrip (- (expt 2 63)))
       (when (setup-temp-table)
         (check-table-rt 123456)))
+
     (type-test-case '(mediumint)
       (check-roundtrip 5)
       (check-roundtrip -1)
@@ -382,6 +390,7 @@
       (when (setup-temp-table)
         (check-table-rt 1.0)
         (check-table-rt -5.5)))
+
     (type-test-case '(double)
       (check-roundtrip 1.0)
       (check-roundtrip 1.5)
@@ -468,6 +477,7 @@
       (when (setup-temp-table)
         (for ([d+s some-dates])
           (check-table-rt (car d+s)))))
+
     (type-test-case '(time)
       (define frac-seconds-ok? (ORFLAGS 'postgresql))
       (for ([t+s some-times])
@@ -479,6 +489,7 @@
           ;; MySQL (<5.7) does not *store* fractional seconds
           (when (or frac-seconds-ok? (zero? (sql-time-nanosecond (car t+s))))
             (check-table-rt (car t+s))))))
+
     (type-test-case '(timetz)
       (for ([t+s some-timetzs])
         (check-roundtrip (car t+s))
@@ -486,6 +497,7 @@
       (when (setup-temp-table)
         (for ([t+s some-timetzs])
           (check-table-rt (car t+s)))))
+
     (type-test-case '(timestamp datetime)
       (define frac-seconds-ok? (ORFLAGS 'postgresql))
       (for ([t+s some-timestamps])
@@ -501,6 +513,7 @@
           ;; MySQL (<5.7) does not *store* fractional seconds
           (when (or frac-seconds-ok? (zero? (sql-timestamp-nanosecond (car t+s))))
             (check-table-rt (car t+s))))))
+
     (type-test-case '(timestamptz)
       (for ([t+s some-timestamptzs])
         (check-roundtrip* (car t+s) check-timestamptz-equal?)
