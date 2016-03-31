@@ -21,7 +21,7 @@
 
 (define (type-test-case* types proc)
   (let* ([known-types
-          (if (ANYFLAGS 'sqlite3)
+          (if (ORFLAGS 'sqlite3)
               '(bigint double text blob)
               (send dbsystem get-known-types +inf.0))]
          [type (for/or ([type types])
@@ -30,117 +30,108 @@
       (test-case (format "~s" type)
         (parameterize ((current-type type)) (proc))))))
 
-(define (check-timestamptz-equal? a b)
-  (cond [(and (sql-timestamp? a) (sql-timestamp? b))
-         (check srfi:time=?
-                (srfi:date->time-utc (sql-datetime->srfi-date a))
-                (srfi:date->time-utc (sql-datetime->srfi-date b)))]
-        [(and (pg-range? a) (pg-range? b))
-         (match (list a b)
-           [(list (pg-range alb ali? aub aui?) (pg-range blb bli? bub bui?))
-            (and (check-timestamptz-equal? alb blb)
-                 (check-equal? ali? bli?)
-                 (check-timestamptz-equal? aub bub)
-                 (check-equal? aui? bui?))])]
-        [else (check-equal? a b)]))
-
-(define (check-bits-equal? a b)
-  (check-equal? (sql-bits->string a) (sql-bits->string b)))
-
-(define (supported? option)
-  (send dbsystem has-support? option))
-
-(define (pg-type-name type)
-  (case type
-    ((double) 'float8)
-    ((char1) "\"char\"")
-    (else
-     (cond [(regexp-match #rx"^(.*)-array$" (format "~a" type))
-            => (lambda (m)
-                 (format "~a[]" (pg-type-name (string->symbol (cadr m)))))]
-           [else type]))))
-
-(define (check-roundtrip* c value check-equal?)
-  (cond [(ANYFLAGS 'postgresql 'ispg)
-         (let* ([tname (pg-type-name (current-type))]
-                [q (sql (format "select $1::~a" tname))])
-           (check-equal? (query-value c q value)
-                         value))]
-        [(ANYFLAGS 'mysql 'ismy)
-         (let ([stmt
-                (case (current-type)
-                  ((varchar text) "select ?") ;;  "select cast(? as char)" gives ODBC problems
-                  ((blob) "select cast(? as binary)") ;; ???
-                  ((integer tinyint smallint mediumint bigint)
-                   "select cast(? as signed integer)")
-                  ((double real) "select (? * 1.0)")
-                  ((decimal numeric) "select cast(? as decimal(40,10))")
-                  ((date) "select cast(? as date)")
-                  ((time) "select cast(? as time)")
-                  ((datetime) "select cast(? as datetime)")
-                  ((json geometry) "select ?")
-                  ;; FIXME: more types
-                  (else #f))])
-           (unless stmt
-             (error 'check-roundtrip "unsupported type: ~e" (current-type)))
-           (check-equal? (query-value c stmt value) value))]
-        [(eq? dbsys 'sqlite3) ;; no ODBC-sqlite3, too painful
-         (check-equal? (query-value c "select ?" value) value)]
-        [(ANYFLAGS 'isora 'isdb2)
-         (let ([stmt
-                (case (current-type)
-                  ((varchar)
-                   (cond [(ANYFLAGS 'isdb2)
-                          "cast(? as varchar(200) ccsid unicode)"]
-                         [(ANYFLAGS 'isora)
-                          "cast(? as varchar2(200))"]))
-                  ((blob) "cast(? as binary)") ;; ???
-                  ((integer) "cast(? as integer)")
-                  ((real) #f)
-                  ((numeric)
-                   (cond [(ANYFLAGS 'isdb2)
-                          "cast(? as decimal)"]
-                         [(ANYFLAGS 'isora)
-                          "cast(? as decimal(20,10))"]))
-                  ((date)
-                   (cond [(ANYFLAGS 'isdb2)
-                          "cast(? as date)"]
-                         [(ANYFLAGS 'isora)
-                          #f]))
-                  ((time)
-                   (cond [(ANYFLAGS 'isdb2)
-                          "cast(? as time)"]
-                         [(ANYFLAGS 'isora) ;; FIXME: bug?
-                          #f]))
-                  ((datetime) "cast(? as datetime)")
-                  ;; FIXME: more types
-                  (else #f))])
-           (when stmt
-             (check-equal? (query-value c (select-val stmt) value) value)))]))
+;; ----------------------------------------
 
 (define-check (check-roundtrip c value)
   (check-roundtrip* c value check-equal?))
 
-;; FIXME: change to testing flag?
-(define (temp-table-ok?)
-  (ANYFLAGS 'postgresql 'mysql))
+(define (check-roundtrip* c value check-equal?)
+  (cond [(roundtrip-statement)
+         => (lambda (rt-stmt)
+              (check-equal? (query-value c rt-stmt value) value))]
+        [else
+         (error 'check-roundtrip "don't know how to check-roundtrip type: ~e"
+                (current-type))]))
+
+(define (roundtrip-statement)
+  (cond [(ORFLAGS 'postgresql 'ispg)
+         (format "select $1::~a" (type->sql (current-type)))]
+        [(ORFLAGS 'mysql 'ismy)
+         (roundtrip-stmt/mysql)]
+        [(eq? dbsys 'sqlite3) ;; no ODBC-sqlite3, too painful
+         "select ?"]
+        [(FLAG 'isora)
+         (roundtrip-stmt/oracle)]
+        [(FLAG 'isdb2)
+         (roundtrip-stmt/db2)]
+        [else #f]))
+
+(define (roundtrip-stmt/mysql)
+  (case (current-type)
+    [(varchar text) "select ?"] ;;  "select cast(? as char)" gives ODBC problems
+    [(blob) "select cast(? as binary)"] ;; ???
+    [(integer tinyint smallint mediumint bigint)
+     "select cast(? as signed integer)"]
+    [(double real) "select (? * 1.0)"]
+    [(decimal numeric) "select cast(? as decimal(40,10))"]
+    [(date) "select cast(? as date)"]
+    [(time) "select cast(? as time)"]
+    [(datetime) "select cast(? as datetime)"]
+    [(json geometry) "select ?"]
+    ;; FIXME: more types
+    [else #f]))
+
+(define (roundtrip-stmt/oracle)
+  (define (wrap e) (format "select ~a from dual" e))
+  (case (current-type)
+    [(varchar)  (wrap "cast(? as varchar2(200))")]
+    [(blob)     (wrap "cast(? as binary)")] ;; ??
+    [(integer)  (wrap "cast(? as integer)")]
+    ;; FIXME: real
+    [(numeric)  (wrap "cast(? as decimal(20,10))")]
+    ;; FIXME: date
+    ;; FIXME: time (bug?)
+    [(datetime) (wrap "cast(? as datetime)")]
+    ;; FIXME: more types
+    [else #f]))
+
+(define (roundtrip-stmt/db2)
+  (define (wrap e) (format "select ~a" e))
+  (case (current-type)
+    [(varchar)  (wrap "cast(? as varchar(200) ccsid unicode)")]
+    [(blob)     (wrap "cast(? as binary)")] ;; ??
+    [(integer)  (wrap "cast(? as integer)")]
+    ;; FIXME: real
+    [(numeric)  (wrap "cast(? as decimal)")]
+    [(date)     (wrap "cast(? as date)")]
+    [(time)     (wrap "cast(? as time)")]
+    [(datetime) (wrap "cast(? as datetime)")]
+    ;; FIXME: more types
+    [else #f]))
+
+(define (type->sql type)
+  (cond [(ORFLAGS 'postgresql 'ispg)
+         (cond [(eq? type 'double) 'float8]
+               [(eq? type 'char1)  '|"char"|]
+               [(regexp-match #rx"^(.*)-array$" (format "~a" type))
+                => (lambda (m) (format "~a[]" (type->sql (string->symbol (cadr m)))))]
+               [else type])]
+        [else type]))
+
+;; ----------------------------------------
 
 (define (setup-temp-table c [type (current-type)])
-  (when (temp-table-ok?)
-    (query-exec c (format "create temporary table testing_temp_table (v ~a)" type)))
-  (temp-table-ok?))
+  (define (temp-table-ok?) (ORFLAGS 'postgresql 'mysql))
+  (and (temp-table-ok?)
+       (query-exec c (format "create temporary table testing_temp_table (v ~a)" (type->sql type)))
+       #t))
 
-(define (check-roundtrip*/table c value check-equal?)
+(define-check (check-table-rt c value)
+  (check-table-rt* c value check-equal?))
+
+(define (check-table-rt* c value check-equal?)
   (query-exec c "delete from testing_temp_table")
   (query-exec c (sql "insert into testing_temp_table (v) values ($1)") value)
   (check-equal? (query-value c "select v from testing_temp_table") value))
 
-(define-check (check-roundtrip/table c value)
-  (check-roundtrip*/table c value check-equal?))
+;; ----------------------------------------
+
+(define-check (check-value/text c val text)
+  (check-value/text* c val text check-equal? check-equal?))
 
 (define (check-value/text* c val text check-val-equal? check-text-equal?)
-  (cond [(ANYFLAGS 'postgresql)
-         (let* ([tname (pg-type-name (current-type))]
+  (cond [(ORFLAGS 'postgresql)
+         (let* ([tname (type->sql (current-type))]
                 [q-text->val (sql (format "select ($1::text)::~a" tname))]
                 [q-val->text (sql (format "select ($1::~a)::text" tname))])
            (when check-val-equal?
@@ -150,9 +141,6 @@
         ;; FIXME: mysql just test val->text since text->val irregular
         [else (void)]))
 
-(define-check (check-value/text c val text)
-  (check-value/text* c val text check-equal? check-equal?))
-
 (define-check (check-varchar c str)
   ;; Check roundtrip (only checks same when arrives back at client)
   (check-roundtrip c str)
@@ -161,8 +149,8 @@
   (let ([len-fun (case dbsys
                    ((postgresql sqlite3) "length")
                    ((mysql) "char_length")
-                   ((odbc) (cond [(TESTFLAGS 'ispg) "length"]
-                                 [(TESTFLAGS 'ismy) "char_length"])))])
+                   ((odbc) (cond [(ANDFLAGS 'ispg) "length"]
+                                 [(ANDFLAGS 'ismy) "char_length"])))])
     (when (string? len-fun)
       (check-equal? (query-value c (sql (format "select ~a($1)" len-fun)) str)
                     (string-length str)
@@ -175,7 +163,7 @@
     (let ([ci-fun (case dbsys
                     ((postgresql) "ascii") ;; yes, returns unicode code point too (if utf8)
                     ((mysql sqlite3) #f) ;; ???
-                    ((odbc) (cond [(TESTFLAGS 'ispg) "ascii"])))])
+                    ((odbc) (cond [(ANDFLAGS 'ispg) "ascii"])))])
       (when (string? ci-fun)
         (check-equal? (query-value c (sql (format "select ~a($1)" ci-fun)) str)
                       (char->integer (string-ref str 0))
@@ -185,12 +173,12 @@
                     ((postgresql) "select chr(~a)")
                     ((mysql) "select char(~a using utf8)")
                     ((sqlite3) #f)
-                    ((odbc) (cond [(TESTFLAGS 'ispg) "select chr(~a)"]
-                                  [(TESTFLAGS 'ismy) "select char(~a using utf8)"])))])
+                    ((odbc) (cond [(ANDFLAGS 'ispg) "select chr(~a)"]
+                                  [(ANDFLAGS 'ismy) "select char(~a using utf8)"])))])
       (when (string? ic-fmt)
         (check-equal? (query-value c
                         (format ic-fmt
-                                (if (ANYFLAGS 'mysql 'ismy)
+                                (if (ORFLAGS 'mysql 'ismy)
                                     (string-join
                                      (map number->string
                                           (bytes->list (string->bytes/utf-8 str)))
@@ -205,6 +193,25 @@
 
 (define-check (check-trim-string=? a b)
   (check-equal? (string-trim a) (string-trim b)))
+
+(define-check (check-timestamptz-equal? a b)
+  (cond [(and (sql-timestamp? a) (sql-timestamp? b))
+         (check srfi:time=?
+                (srfi:date->time-utc (sql-datetime->srfi-date a))
+                (srfi:date->time-utc (sql-datetime->srfi-date b)))]
+        [(and (pg-range? a) (pg-range? b))
+         (match (list a b)
+           [(list (pg-range alb ali? aub aui?) (pg-range blb bli? bub bui?))
+            (and (check-timestamptz-equal? alb blb)
+                 (check-equal? ali? bli?)
+                 (check-timestamptz-equal? aub bub)
+                 (check-equal? aui? bui?))])]
+        [else (check-equal? a b)]))
+
+(define-check (check-bits-equal? a b)
+  (check-equal? (sql-bits->string a) (sql-bits->string b)))
+
+;; ----------------------------------------
 
 (define some-dates
   `((,(sql-date 1776 07 04) "1776-07-04")
@@ -271,6 +278,8 @@
     "阿あでいおうわぁ"
     "абцдефгхиклмнопљрстувњџзѕЋч"))
 
+;; ============================================================
+
 (define test
   (test-suite "SQL types (roundtrip, etc)"
     (type-test-case '(bool boolean)
@@ -279,26 +288,26 @@
          (check-roundtrip c #t)
          (check-roundtrip c #f)
          (when (setup-temp-table c)
-           (check-roundtrip/table c #t)
-           (check-roundtrip/table c #f)))))
+           (check-table-rt c #t)
+           (check-table-rt c #f)))))
     (type-test-case '(bytea blob)
       (call-with-connection
        (lambda (c)
          (check-roundtrip c #"this is the time to remember")
          (check-roundtrip c #"that's the way it is")
          (check-roundtrip c (list->bytes (build-list 256 values)))
-         (when (ANYFLAGS 'postgresql 'mysql 'sqlite3)
+         (when (ORFLAGS 'postgresql 'mysql 'sqlite3)
            (check-roundtrip c (make-bytes #e1e6 (char->integer #\a)))
            (check-roundtrip c (make-bytes #e1e7 (char->integer #\b)))
            #| (check-roundtrip c (make-bytes #e1e8 (char->integer #\c))) |#)
-         (when (ANYFLAGS 'postgresql)
+         (when (ORFLAGS 'postgresql)
            (let ([r (query-value c "select cast(repeat('a', 10000000) as bytea)")])
              (check-pred bytes? r)
              (check-equal? r (make-bytes 10000000 (char->integer #\a))))
            (let ([r (query-value c "select cast(repeat('a', 100000000) as bytea)")])
              (check-pred bytes? r)
              (check-equal? r (make-bytes 100000000 (char->integer #\a)))))
-         (when (ANYFLAGS 'mysql)
+         (when (ORFLAGS 'mysql)
            ;; Test able to read large blobs
            ;; (depends on max_allowed_packet, though)
            (define max-allowed-packet (query-value c "select @@session.max_allowed_packet"))
@@ -309,8 +318,8 @@
                  (check-pred bytes? r)
                  (check-equal? r (make-bytes N (char->integer #\a)))))))
          (when (setup-temp-table c)
-           (check-roundtrip/table c #"this is the time to remember")
-           (check-roundtrip/table c #"I am the walrus.")))))
+           (check-table-rt c #"this is the time to remember")
+           (check-table-rt c #"I am the walrus.")))))
     (type-test-case '(text)
       (call-with-connection
        (lambda (c)
@@ -320,8 +329,8 @@
          (check-roundtrip c (make-string #e1e7 #\b))
          (check-roundtrip c (make-string #e1e8 #\c))
          (when (setup-temp-table c)
-           (check-roundtrip/table c "")
-           (check-roundtrip/table c "abcde")))))
+           (check-table-rt c "")
+           (check-table-rt c "abcde")))))
     (type-test-case '(tinyint)
       (call-with-connection
        (lambda (c)
@@ -330,10 +339,10 @@
          (check-roundtrip c 127)
          (check-roundtrip c -128)
          (when (setup-temp-table c)
-           (check-roundtrip/table c 5)
-           (check-roundtrip/table c -1)
-           (check-roundtrip/table c 127)
-           (check-roundtrip/table c -128)))))
+           (check-table-rt c 5)
+           (check-table-rt c -1)
+           (check-table-rt c 127)
+           (check-table-rt c -128)))))
     (type-test-case '(smallint)
       (call-with-connection
        (lambda (c)
@@ -342,7 +351,7 @@
          (check-roundtrip c #x7FFF)
          (check-roundtrip c #x-8000)
          (when (setup-temp-table c)
-           (check-roundtrip/table c 1234)))))
+           (check-table-rt c 1234)))))
     (type-test-case '(integer)
       (call-with-connection
        (lambda (c)
@@ -351,7 +360,7 @@
          (check-roundtrip c #x7FFFFFFF)
          (check-roundtrip c #x-80000000)
          (when (setup-temp-table c)
-           (check-roundtrip/table c 123456)))))
+           (check-table-rt c 123456)))))
     (type-test-case '(bigint)
       (call-with-connection
        (lambda (c)
@@ -360,7 +369,7 @@
          (check-roundtrip c (sub1 (expt 2 63)))
          (check-roundtrip c (- (expt 2 63)))
          (when (setup-temp-table c)
-           (check-roundtrip/table c 123456)))))
+           (check-table-rt c 123456)))))
     (type-test-case '(mediumint)
       (call-with-connection
        (lambda (c)
@@ -368,9 +377,9 @@
          (check-roundtrip c -1)
          (check-roundtrip c 1234)
          (when (setup-temp-table c)
-           (check-roundtrip/table c 5)
-           (check-roundtrip/table c -1)
-           (check-roundtrip/table c 123456)))))
+           (check-table-rt c 5)
+           (check-table-rt c -1)
+           (check-table-rt c 123456)))))
 
     (type-test-case '(real)
       (call-with-connection
@@ -378,13 +387,13 @@
          (check-roundtrip c 1.0)
          (check-roundtrip c 1.5)
          (check-roundtrip c -5.5)
-         (when (supported? 'real-infinities)
+         (when (send dbsystem has-support? 'real-infinities)
            (check-roundtrip c +inf.0)
            (check-roundtrip c -inf.0)
            (check-roundtrip c +nan.0))
          (when (setup-temp-table c)
-           (check-roundtrip/table c 1.0)
-           (check-roundtrip/table c -5.5)))))
+           (check-table-rt c 1.0)
+           (check-table-rt c -5.5)))))
     (type-test-case '(double)
       (call-with-connection
        (lambda (c)
@@ -393,27 +402,27 @@
          (check-roundtrip c -5.5)
          (check-roundtrip c 1.1)
          (check-roundtrip c -5.8)
-         (when (supported? 'real-infinities)
+         (when (send dbsystem has-support? 'real-infinities)
            (check-roundtrip c +inf.0)
            (check-roundtrip c -inf.0)
            (check-roundtrip c +nan.0))
-         (when (setup-temp-table c (if (ANYFLAGS 'pg 'ispg) "float8" "double"))
-           (check-roundtrip/table c 1.0)
-           (check-roundtrip/table c -5.5)))))
+         (when (setup-temp-table c (if (ORFLAGS 'pg 'ispg) "float8" "double"))
+           (check-table-rt c 1.0)
+           (check-table-rt c -5.5)))))
 
-    (unless (ANYFLAGS 'isdb2) ;; "Driver not capable"
+    (unless (ORFLAGS 'isdb2) ;; "Driver not capable"
       (type-test-case '(numeric decimal)
         (call-with-connection
          (lambda (c)
            (check-roundtrip c 0)
            (check-roundtrip c 10)
            (check-roundtrip c -5)
-           (unless (TESTFLAGS 'odbc)
+           (unless (ANDFLAGS 'odbc)
              (check-roundtrip c 1234567890)
              (check-roundtrip c -1234567890)
              (check-roundtrip c #e12345.67809)
              (check-roundtrip c #e-12345.67809)
-             (unless (TESTFLAGS 'mysql)
+             (unless (ANDFLAGS 'mysql)
                (check-roundtrip c 12345678901234567890)
                (check-roundtrip c -12345678901234567890)
                (check-roundtrip c #e1234567890.0987654321)
@@ -425,16 +434,16 @@
              (check-roundtrip c -1/40)
              (check-roundtrip c -1/10)
              (check-roundtrip c 1/400000))
-           (when (supported? 'numeric-infinities)
+           (when (send dbsystem has-support? 'numeric-infinities)
              (check-roundtrip c +nan.0))
-           (when (setup-temp-table c (if (ANYFLAGS 'mysql 'ismy) "decimal(40,10)" (current-type)))
-             (check-roundtrip/table c 1234567890)
-             (check-roundtrip/table c 1/2))))))
+           (when (setup-temp-table c (if (ORFLAGS 'mysql 'ismy) "decimal(40,10)" (current-type)))
+             (check-table-rt c 1234567890)
+             (check-table-rt c 1/2))))))
 
     (type-test-case '(varchar)
       (call-with-connection
        (lambda (c)
-         (unless (ANYFLAGS 'isora) ;; Oracle treats empty string as NULL (?!)
+         (unless (ORFLAGS 'isora) ;; Oracle treats empty string as NULL (?!)
            (check-varchar c ""))
          (for ([str some-basic-strings])
            (check-varchar c str))
@@ -442,37 +451,36 @@
            (check-varchar c str)
            ;; and do the extra one-char checks:
            (check-1char c (substring str 0 1)))
-         (unless (ANYFLAGS 'isora 'isdb2)
+         (unless (ORFLAGS 'isora 'isdb2)
            (check-varchar c (make-string 800 #\a)))
-         (unless (ANYFLAGS 'isora 'isdb2) ;; too long
+         (unless (ORFLAGS 'isora 'isdb2) ;; too long
            (check-varchar c (apply string-append some-intl-strings)))
          ;; one-char checks
          (check-1char c (string #\λ))
          (check-1char c (make-string 1 #\u2200))
          (check-varchar c (make-string 20 #\u2200))
          ;; check large strings
-         (unless (ANYFLAGS 'isora 'isdb2) ;; too long (???)
+         (unless (ORFLAGS 'isora 'isdb2) ;; too long (???)
            (check-varchar c (make-string 100 #\u2200)))
          ;; Following might not produce valid string (??)
-         (unless (ANYFLAGS 'isora 'isdb2)
+         (unless (ORFLAGS 'isora 'isdb2)
            (check-varchar c
                           (list->string
                            (build-list 800
                                        (lambda (n)
                                          (integer->char (add1 n)))))))
-         (unless (ANYFLAGS 'mysql 'ismy)
+         (unless (ORFLAGS 'mysql 'ismy)
            (when (setup-temp-table c)
              (for ([str (append some-basic-strings some-intl-strings)])
-               (check-roundtrip/table c str)))))))
+               (check-table-rt c str)))))))
 
     (type-test-case '(character)
       (call-with-connection
        (lambda (c)
-         (when (temp-table-ok?)
-           (setup-temp-table c "char(5)")
-           (check-roundtrip*/table c "" check-trim-string=?)
-           (check-roundtrip*/table c "abc" check-trim-string=?)
-           (check-roundtrip*/table c "abcde" check-trim-string=?)))))
+         (when (setup-temp-table c "char(5)")
+           (check-table-rt* c "" check-trim-string=?)
+           (check-table-rt* c "abc" check-trim-string=?)
+           (check-table-rt* c "abcde" check-trim-string=?)))))
 
     (type-test-case '(date)
       (call-with-connection
@@ -482,11 +490,11 @@
            (check-value/text c (car d+s) (cadr d+s)))
          (when (setup-temp-table c)
            (for ([d+s some-dates])
-             (check-roundtrip/table c (car d+s)))))))
+             (check-table-rt c (car d+s)))))))
     (type-test-case '(time)
       (call-with-connection
        (lambda (c)
-         (define frac-seconds-ok? (ANYFLAGS 'postgresql))
+         (define frac-seconds-ok? (ORFLAGS 'postgresql))
          (for ([t+s some-times])
            (when (or frac-seconds-ok? (zero? (sql-time-nanosecond (car t+s))))
              (check-roundtrip c (car t+s))
@@ -495,7 +503,7 @@
            (for ([t+s some-times])
              ;; MySQL (<5.7) does not *store* fractional seconds
              (when (or frac-seconds-ok? (zero? (sql-time-nanosecond (car t+s))))
-               (check-roundtrip/table c (car t+s))))))))
+               (check-table-rt c (car t+s))))))))
     (type-test-case '(timetz)
       (call-with-connection
        (lambda (c)
@@ -504,16 +512,16 @@
            (check-value/text c (car t+s) (cadr t+s)))
          (when (setup-temp-table c)
            (for ([t+s some-timetzs])
-             (check-roundtrip/table c (car t+s)))))))
+             (check-table-rt c (car t+s)))))))
     (type-test-case '(timestamp datetime)
       (call-with-connection
        (lambda (c)
-         (define frac-seconds-ok? (ANYFLAGS 'postgresql))
+         (define frac-seconds-ok? (ORFLAGS 'postgresql))
          (for ([t+s some-timestamps])
            (when (or frac-seconds-ok? (zero? (sql-timestamp-nanosecond (car t+s))))
              (check-roundtrip c (car t+s))
              (check-value/text c (car t+s) (cadr t+s))))
-         (when (ANYFLAGS 'postgresql) ;; Only postgresql supports +/-inf.0
+         (when (ORFLAGS 'postgresql) ;; Only postgresql supports +/-inf.0
            (for ([t+s some-pg-timestamps])
              (check-roundtrip c (car t+s))
              (check-value/text c (car t+s) (cadr t+s))))
@@ -521,7 +529,7 @@
            (for ([t+s some-timestamps])
              ;; MySQL (<5.7) does not *store* fractional seconds
              (when (or frac-seconds-ok? (zero? (sql-timestamp-nanosecond (car t+s))))
-               (check-roundtrip/table c (car t+s))))))))
+               (check-table-rt c (car t+s))))))))
     (type-test-case '(timestamptz)
       (call-with-connection
        (lambda (c)
@@ -530,7 +538,7 @@
            (check-value/text* c (car t+s) (cadr t+s) check-timestamptz-equal? #f))
          (when (setup-temp-table c)
            (for ([t+s some-timestamptzs])
-             (check-roundtrip*/table c (car t+s) check-timestamptz-equal?))))))
+             (check-table-rt* c (car t+s) check-timestamptz-equal?))))))
 
     (type-test-case '(interval)
       (call-with-connection
@@ -543,7 +551,7 @@
              (when (memq dbsys '(postgresql))
                (check-value/text c (car i+s) (cadr i+s))))))))
 
-    (unless (ANYFLAGS 'mysql)
+    (unless (ORFLAGS 'mysql)
       (type-test-case '(varbit bit)
         (call-with-connection
          (lambda (c)
@@ -582,7 +590,7 @@
                      (list (line-string (list (point 1 1) (point 3 1)
                                               (point 1.5 1.5) (point 1 1))))))))))
 
-    (when (ANYFLAGS 'postgresql) ;; "Driver not capable"
+    (when (ORFLAGS 'postgresql) ;; "Driver not capable"
       (type-test-case '(path)
         (call-with-connection
          (lambda (c)
@@ -597,7 +605,7 @@
          (lambda (c)
            (check-roundtrip c (pg-circle (point 1 2) 45))))))
 
-    (when (TESTFLAGS 'postgresql 'pg92)
+    (when (ANDFLAGS 'postgresql 'pg92)
       (type-test-case '(json)
         (call-with-connection
          (lambda (c)

@@ -29,8 +29,9 @@
    select-val
    dbsystem
    NOISY?
-   TESTFLAGS
-   ANYFLAGS))
+   FLAG
+   ANDFLAGS
+   ORFLAGS))
 
 (define-unit config@
   (import database^)
@@ -54,7 +55,7 @@
     (let [(cx (connect-for-test))]
 
       ;; For now, we just assume Oracle, DB2 dbs are already set up.
-      (unless (ANYFLAGS 'isora 'isdb2)
+      (unless (ORFLAGS 'isora 'isdb2)
         (query-exec cx
           "create temporary table the_numbers (N integer primary key, descr varchar(80))")
         (for-each (lambda (p)
@@ -83,9 +84,9 @@
       (else (error 'sql "unsupported dbsystem: ~e" dbsys))))
 
   (define (select-val str)
-    (cond [(TESTFLAGS 'isora)
+    (cond [(FLAG 'isora)
            (sql (string-append "select " str " from DUAL"))]
-          [(TESTFLAGS 'isdb2)
+          [(FLAG 'isdb2)
            (sql (string-append "values (" str ")"))]
           [else (sql (string-append "select " str))]))
 
@@ -97,16 +98,8 @@
         (disconnect c)
         dbsystem)))
 
-  ;; Flags = dbflags U dbsys
+  (define allflags (cons dbsys dbflags))
 
-  ;; Returns #t if all are set.
-  (define (TESTFLAGS . xs)
-    (for/and ([x xs])
-      (or (eq? x dbsys)
-          (and (member x dbflags) #t))))
-
-  ;; Returns #t if any are set.
-  (define (ANYFLAGS . xs)
-    (for/or ([x xs])
-      (or (eq? x dbsys)
-          (and (member x dbflags) #t)))))
+  (define (FLAG x) (and (member x allflags) #t))
+  (define (ORFLAGS . xs) (ormap FLAG xs))
+  (define (ANDFLAGS . xs) (andmap FLAG xs)))

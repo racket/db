@@ -33,7 +33,7 @@
 
   (test-suite (format "simple (~a)" prep-mode)
 
-    (unless (ANYFLAGS 'isora 'isdb2) ;; table isn't temp, so don't tamper with it
+    (unless (ORFLAGS 'isora 'isdb2) ;; table isn't temp, so don't tamper with it
       (test-case "query-exec"
         (with-connection c
           (check-pred void? (Q c query-exec "insert into the_numbers values(-1, 'mysterious')"))
@@ -42,7 +42,7 @@
         (with-connection c
           (check-pred void? (Q c query-exec "delete from the_numbers where N <> $1" 0))
           (check-equal? (Q c query-value "select count(*) from the_numbers")
-                        (if (TESTFLAGS 'odbc 'issl) "1" 1))
+                        (if (ANDFLAGS 'odbc 'issl) "1" 1))
           (check-equal? (Q c query-list "select N from the_numbers")
                         (list 0)))))
 
@@ -54,7 +54,7 @@
         (check set-equal?
                (Q c query-rows "select N, descr from the_numbers where N < $1" 2)
                '(#(0 "nothing") #(1 "unity")))
-        (unless (ANYFLAGS 'isora 'isdb2)
+        (unless (ORFLAGS 'isora 'isdb2)
           (check-exn-fail
            (Q c query-rows "insert into the_numbers values (13, 'baker')")))))
 
@@ -119,7 +119,7 @@
                            (Q c in-query "select N, descr from the_numbers where N < $1" 2)])
                  (vector n d))
                '(#(0 "nothing") #(1 "unity")))
-        (unless (ANYFLAGS 'isora 'isdb2)
+        (unless (ORFLAGS 'isora 'isdb2)
           (check-exn-fail
            (for ([x (Q c in-query "insert into the_numbers values ($1, 'baker')" 13)])
              (void))))
@@ -191,7 +191,7 @@
           (check set-equal?
                  (map vector (map car test-data))
                  (rows-result-rows q)))))
-    (unless (ANYFLAGS 'isora 'isdb2)
+    (unless (ORFLAGS 'isora 'isdb2)
       (test-case "query - update"
         (with-connection c
           (let [(q (query c "update the_numbers set N = -1 where N = 1"))]
@@ -274,7 +274,7 @@
 
     ;; Added 18 May 2003: Corrected a bug which incorrectly interleaved
     ;; nulls with returned fields.
-    (unless (TESTFLAGS 'odbc 'issl)
+    (unless (ANDFLAGS 'odbc 'issl)
       (test-case "nulls arrive in correct order"
         (with-connection c
           ;; raw NULL has PostgreSQL type "unknown", not allowed
@@ -335,11 +335,11 @@
         (check-equal? (in-transaction? c) #t)
         ;; SQLite-ODBC is unhappy with open tx on disconnect
         (rollback-transaction c)))
-    (unless (ANYFLAGS 'odbc)
+    (unless (ORFLAGS 'odbc)
       (test-case "unmanaged st, managed end ok"
         (with-connection c
-          (query-exec c (cond [(ANYFLAGS 'ispg 'ismy) "START TRANSACTION"]
-                              [(ANYFLAGS 'issl) "BEGIN TRANSACTION"]))
+          (query-exec c (cond [(ORFLAGS 'ispg 'ismy) "START TRANSACTION"]
+                              [(ORFLAGS 'issl) "BEGIN TRANSACTION"]))
           (check-equal? (in-transaction? c) #t)
           (rollback-transaction c)
           (check-equal? (in-transaction? c) #f))))
@@ -350,7 +350,7 @@
                      (call-with-transaction c
                        (lambda () (query-exec c "ROLLBACK")))))
         (check-equal? (in-transaction? c) #f)))
-    (when (and (ANYFLAGS 'ispg 'issl) (not (ANYFLAGS 'odbc)))
+    (when (and (ORFLAGS 'ispg 'issl) (not (ORFLAGS 'odbc)))
       (test-case "transactional ddl"
         (with-connection c
           (start-transaction c)
@@ -361,7 +361,7 @@
           (when exists2 (query-exec c "drop table foo")) ;; shouldn't happen
           (check-equal? exists1 #t)
           (check-equal? exists2 #f))))
-    (when (ANYFLAGS 'ismy 'odbc)
+    (when (ORFLAGS 'ismy 'odbc)
       (test-case "error on implicit-commit stmt"
         (with-connection c
           (start-transaction c)
@@ -369,13 +369,13 @@
                      (lambda () (query-exec c "create table foo (n integer)")))
           ;; SQLite-ODBC is unhappy with open tx on disconnect
           (rollback-transaction c))))
-    (when (ANYFLAGS 'odbc)
+    (when (ORFLAGS 'odbc)
       (test-case "error on repeated start"
         (with-connection c
           (start-transaction c)
           (check-exn #rx"already in transaction"
                      (lambda () (start-transaction c))))))
-    (unless (ANYFLAGS 'odbc)
+    (unless (ORFLAGS 'odbc)
       (test-case "start, start"
         (with-connection c
           (check-pred void? (start-transaction c))
@@ -385,7 +385,7 @@
           (check-equal? (in-transaction? c) #t)
           (check-pred void? (commit-transaction c))
           (check-equal? (in-transaction? c) #f))))
-    (when (ANYFLAGS 'odbc)
+    (when (ORFLAGS 'odbc)
       (test-case "start, start fails"
         (with-connection c
           (start-transaction c)
@@ -431,7 +431,7 @@
     (test-case "cwt w/ caught error"
       (with-connection c
         (define (check-pg-exn proc)
-          (if (ANYFLAGS 'ispg 'odbc) (check-exn exn:fail? proc) (proc)))
+          (if (ORFLAGS 'ispg 'odbc) (check-exn exn:fail? proc) (proc)))
         (let ([ok? #f])
           (check-pg-exn
            (lambda ()
@@ -443,7 +443,7 @@
           (check-equal? ok? #t "still in tx after caught error")
           (check-equal? (in-transaction? c) #f))))
 
-    (unless (ANYFLAGS 'odbc)
+    (unless (ORFLAGS 'odbc)
       (test-case "cwt w/ unclosed tx"
         (with-connection c
           (check-exn #rx"unclosed nested tr.* .within .* call-with-transaction"
@@ -489,7 +489,7 @@
       (test-case "st, cwt w/ caught error"
         (with-connection c
           (define (check-pg-exn proc)
-            (if (ANYFLAGS 'ispg) (check-exn exn:fail? proc) (proc)))
+            (if (ORFLAGS 'ispg) (check-exn exn:fail? proc) (proc)))
           (let ([ok? #f])
             (start-transaction c)
             (check-pg-exn
@@ -547,7 +547,7 @@
     (test-case "query - not a statement"
       (with-connection c
         (check-exn exn:fail? (lambda () (query c 5)))))
-    (unless (or (TESTFLAGS 'odbc 'ispg) (ANYFLAGS 'isdb2))
+    (unless (or (ANDFLAGS 'odbc 'ispg) (ORFLAGS 'isdb2))
       (test-case "query - multiple statements in string"
         (with-connection c
           (check-exn exn:fail?
@@ -564,7 +564,7 @@
       (with-connection c
         (check-exn exn:fail? (lambda () (query-value c "select nonsuch from notthere")))
         (check-equal? (query-value c (select-val "17"))
-                      (if (TESTFLAGS 'odbc 'issl) "17" 17))))))
+                      (if (ANDFLAGS 'odbc 'issl) "17" 17))))))
 
 (define virtual-statement-tests
   (let ()
