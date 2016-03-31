@@ -16,6 +16,7 @@
 
 (define current-type (make-parameter #f))
 (define dbc (make-parameter 'db-not-set))
+(define temp-table-avail? (make-parameter #f))
 
 (define-syntax-rule (type-test-case types . body)
   (type-test-case* types (lambda () . body)))
@@ -32,7 +33,8 @@
         (call-with-connection
          (lambda (c)
            (parameterize ((current-type type)
-                          (dbc c))
+                          (dbc c)
+                          (temp-table-avail? #f))
              (proc))))))))
 
 ;; ----------------------------------------
@@ -46,7 +48,9 @@
               (check-equal? (query-value (dbc) rt-stmt value) value))]
         [else
          (error 'check-roundtrip "don't know how to check-roundtrip type: ~e"
-                (current-type))]))
+                (current-type))])
+  (when (temp-table-avail?)
+    (check-table-rt* value check-equal?)))
 
 (define (roundtrip-statement)
   (cond [(ORFLAGS 'postgresql 'ispg)
@@ -115,17 +119,14 @@
 
 ;; ----------------------------------------
 
-(define (setup-temp-table [type (current-type)])
+(define (setup-temp-table [type (type->sql (current-type))])
   (define (temp-table-ok?) (ORFLAGS 'postgresql 'mysql))
-  (and (temp-table-ok?)
-       (query-exec (dbc)
-         (format "create temporary table testing_temp_table (v ~a)" (type->sql type)))
-       #t))
+  (when (and type (temp-table-ok?))
+    (query-exec (dbc) (format "create temporary table testing_temp_table (v ~a)" type))
+    (temp-table-avail? #t))
+  (temp-table-avail?))
 
-(define-check (check-table-rt value)
-  (check-table-rt* value check-equal?))
-
-(define (check-table-rt* value check-equal?)
+(define (check-table-rt* value check-equal?) ;; called from check-roundtrip*
   (query-exec (dbc) "delete from testing_temp_table")
   (query-exec (dbc) (sql "insert into testing_temp_table (v) values ($1)") value)
   (check-equal? (query-value (dbc) "select v from testing_temp_table") value))
@@ -290,20 +291,18 @@
   (test-suite "SQL types (roundtrip, etc)"
 
     (type-test-case '(bool boolean)
+      (setup-temp-table)
       (check-roundtrip #t)
-      (check-roundtrip #f)
-      (when (setup-temp-table)
-        (check-table-rt #t)
-        (check-table-rt #f)))
+      (check-roundtrip #f))
 
     (type-test-case '(bytea blob)
+      (setup-temp-table)
       (check-roundtrip #"this is the time to remember")
       (check-roundtrip #"that's the way it is")
       (check-roundtrip (list->bytes (build-list 256 values)))
       (when (ORFLAGS 'postgresql 'mysql 'sqlite3)
         (check-roundtrip (make-bytes #e1e6 (char->integer #\a)))
-        (check-roundtrip (make-bytes #e1e7 (char->integer #\b)))
-        #| (check-roundtrip (make-bytes #e1e8 (char->integer #\c))) |#)
+        (check-roundtrip (make-bytes #e1e7 (char->integer #\b))))
       (when (ORFLAGS 'postgresql)
         (let ([r (query-value (dbc) "select cast(repeat('a', 10000000) as bytea)")])
           (check-pred bytes? r)
@@ -312,86 +311,74 @@
           (check-pred bytes? r)
           (check-equal? r (make-bytes 100000000 (char->integer #\a)))))
       (when (ORFLAGS 'mysql)
-        ;; Test able to read large blobs
-        ;; (depends on max_allowed_packet, though)
-        (define max-allowed-packet (query-value (dbc) "select @@session.max_allowed_packet"))
-        (for ([N (in-list '(#e1e7 #e1e8))])
-          (when (<= N max-allowed-packet)
-            (let* ([q (format "select cast(repeat('a', ~s) as binary)" N)]
-                   [r (query-value (dbc) q)])
-              (check-pred bytes? r)
-              (check-equal? r (make-bytes N (char->integer #\a)))))))
-      (when (setup-temp-table)
-        (check-table-rt #"this is the time to remember")
-        (check-table-rt #"I am the walrus.")))
+        (parameterize ((temp-table-avail? #f))
+          ;; Test able to read large blobs (depends on max_allowed_packet, though)
+          (define max-allowed-packet (query-value (dbc) "select @@session.max_allowed_packet"))
+          (for ([N (in-list '(#e1e7 #e1e8))])
+            (when (<= N max-allowed-packet)
+              (let* ([q (format "select cast(repeat('a', ~s) as binary)" N)]
+                     [r (query-value (dbc) q)])
+                (check-pred bytes? r)
+                (check-equal? r (make-bytes N (char->integer #\a)))))))))
 
     (type-test-case '(text)
+      (setup-temp-table)
       (check-roundtrip "")
       (check-roundtrip "abcde")
       (check-roundtrip (make-string #e1e6 #\a))
       (check-roundtrip (make-string #e1e7 #\b))
-      (check-roundtrip (make-string #e1e8 #\c))
-      (when (setup-temp-table)
-        (check-table-rt "")
-        (check-table-rt "abcde")))
+      (when (FLAG 'mysql) (temp-table-avail? #f))
+      (check-roundtrip (make-string #e1e8 #\c)))
 
     (type-test-case '(tinyint)
+      (setup-temp-table)
       (check-roundtrip 5)
       (check-roundtrip -1)
       (check-roundtrip 127)
-      (check-roundtrip -128)
-      (when (setup-temp-table)
-        (check-table-rt 5)
-        (check-table-rt -1)
-        (check-table-rt 127)
-        (check-table-rt -128)))
+      (check-roundtrip -128))
 
     (type-test-case '(smallint)
+      (setup-temp-table)
       (check-roundtrip 5)
       (check-roundtrip -1)
+      (check-roundtrip 12345)
       (check-roundtrip #x7FFF)
-      (check-roundtrip #x-8000)
-      (when (setup-temp-table)
-        (check-table-rt 1234)))
+      (check-roundtrip #x-8000))
 
     (type-test-case '(integer)
+      (setup-temp-table)
       (check-roundtrip 5)
       (check-roundtrip -1)
+      (check-roundtrip 123456)
       (check-roundtrip #x7FFFFFFF)
-      (check-roundtrip #x-80000000)
-      (when (setup-temp-table)
-        (check-table-rt 123456)))
+      (check-roundtrip #x-80000000))
 
     (type-test-case '(bigint)
+      (setup-temp-table)
       (check-roundtrip 5)
       (check-roundtrip -1)
+      (check-roundtrip 123456789)
       (check-roundtrip (sub1 (expt 2 63)))
-      (check-roundtrip (- (expt 2 63)))
-      (when (setup-temp-table)
-        (check-table-rt 123456)))
+      (check-roundtrip (- (expt 2 63))))
 
     (type-test-case '(mediumint)
+      (setup-temp-table)
       (check-roundtrip 5)
       (check-roundtrip -1)
-      (check-roundtrip 1234)
-      (when (setup-temp-table)
-        (check-table-rt 5)
-        (check-table-rt -1)
-        (check-table-rt 123456)))
+      (check-roundtrip 123456))
 
     (type-test-case '(real)
+      (setup-temp-table)
       (check-roundtrip 1.0)
       (check-roundtrip 1.5)
       (check-roundtrip -5.5)
       (when (send dbsystem has-support? 'real-infinities)
         (check-roundtrip +inf.0)
         (check-roundtrip -inf.0)
-        (check-roundtrip +nan.0))
-      (when (setup-temp-table)
-        (check-table-rt 1.0)
-        (check-table-rt -5.5)))
+        (check-roundtrip +nan.0)))
 
     (type-test-case '(double)
+      (setup-temp-table)
       (check-roundtrip 1.0)
       (check-roundtrip 1.5)
       (check-roundtrip -5.5)
@@ -400,13 +387,12 @@
       (when (send dbsystem has-support? 'real-infinities)
         (check-roundtrip +inf.0)
         (check-roundtrip -inf.0)
-        (check-roundtrip +nan.0))
-      (when (setup-temp-table (if (ORFLAGS 'pg 'ispg) "float8" "double"))
-        (check-table-rt 1.0)
-        (check-table-rt -5.5)))
+        (check-roundtrip +nan.0)))
 
     (unless (ORFLAGS 'isdb2) ;; "Driver not capable"
       (type-test-case '(numeric decimal)
+        (setup-temp-table (cond [(FLAG 'mysql) "decimal(30,10)"]
+                                [else (current-type)]))
         (check-roundtrip 0)
         (check-roundtrip 10)
         (check-roundtrip -5)
@@ -428,12 +414,10 @@
           (check-roundtrip -1/10)
           (check-roundtrip 1/400000))
         (when (send dbsystem has-support? 'numeric-infinities)
-          (check-roundtrip +nan.0))
-        (when (setup-temp-table (if (ORFLAGS 'mysql 'ismy) "decimal(40,10)" (current-type)))
-          (check-table-rt 1234567890)
-          (check-table-rt 1/2))))
+          (check-roundtrip +nan.0))))
 
     (type-test-case '(varchar)
+      ;; (setup-temp-table (cond [(FLAG 'mysql) "varchar(100)"] [else (current-type)]))
       (unless (ORFLAGS 'isora) ;; Oracle treats empty string as NULL (?!)
         (check-varchar ""))
       (for ([str some-basic-strings])
@@ -455,14 +439,7 @@
         (check-varchar (make-string 100 #\u2200)))
       ;; Following might not produce valid string (??)
       (unless (ORFLAGS 'isora 'isdb2)
-        (check-varchar (list->string
-                        (build-list 800
-                                    (lambda (n)
-                                      (integer->char (add1 n)))))))
-      (unless (ORFLAGS 'mysql 'ismy)
-        (when (setup-temp-table)
-          (for ([str (append some-basic-strings some-intl-strings)])
-            (check-table-rt str)))))
+        (check-varchar (build-string 800 (lambda (n) (integer->char (add1 n)))))))
 
     (type-test-case '(character)
       (when (setup-temp-table "char(5)")
@@ -471,34 +448,27 @@
         (check-table-rt* "abcde" check-trim-string=?)))
 
     (type-test-case '(date)
+      (setup-temp-table)
       (for ([d+s some-dates])
         (check-roundtrip (car d+s))
-        (check-value/text (car d+s) (cadr d+s)))
-      (when (setup-temp-table)
-        (for ([d+s some-dates])
-          (check-table-rt (car d+s)))))
+        (check-value/text (car d+s) (cadr d+s))))
 
     (type-test-case '(time)
+      (setup-temp-table) ;; MySQL (<5.7) does not *store* fractional seconds
       (define frac-seconds-ok? (ORFLAGS 'postgresql))
       (for ([t+s some-times])
         (when (or frac-seconds-ok? (zero? (sql-time-nanosecond (car t+s))))
           (check-roundtrip (car t+s))
-          (check-value/text (car t+s) (cadr t+s))))
-      (when (setup-temp-table)
-        (for ([t+s some-times])
-          ;; MySQL (<5.7) does not *store* fractional seconds
-          (when (or frac-seconds-ok? (zero? (sql-time-nanosecond (car t+s))))
-            (check-table-rt (car t+s))))))
+          (check-value/text (car t+s) (cadr t+s)))))
 
     (type-test-case '(timetz)
+      (setup-temp-table)
       (for ([t+s some-timetzs])
         (check-roundtrip (car t+s))
-        (check-value/text (car t+s) (cadr t+s)))
-      (when (setup-temp-table)
-        (for ([t+s some-timetzs])
-          (check-table-rt (car t+s)))))
+        (check-value/text (car t+s) (cadr t+s))))
 
     (type-test-case '(timestamp datetime)
+      (setup-temp-table)
       (define frac-seconds-ok? (ORFLAGS 'postgresql))
       (for ([t+s some-timestamps])
         (when (or frac-seconds-ok? (zero? (sql-timestamp-nanosecond (car t+s))))
@@ -507,28 +477,22 @@
       (when (ORFLAGS 'postgresql) ;; Only postgresql supports +/-inf.0
         (for ([t+s some-pg-timestamps])
           (check-roundtrip (car t+s))
-          (check-value/text (car t+s) (cadr t+s))))
-      (when (setup-temp-table)
-        (for ([t+s some-timestamps])
-          ;; MySQL (<5.7) does not *store* fractional seconds
-          (when (or frac-seconds-ok? (zero? (sql-timestamp-nanosecond (car t+s))))
-            (check-table-rt (car t+s))))))
+          (check-value/text (car t+s) (cadr t+s)))))
 
     (type-test-case '(timestamptz)
+      (setup-temp-table)
       (for ([t+s some-timestamptzs])
         (check-roundtrip* (car t+s) check-timestamptz-equal?)
-        (check-value/text* (car t+s) (cadr t+s) check-timestamptz-equal? #f))
-      (when (setup-temp-table)
-        (for ([t+s some-timestamptzs])
-          (check-table-rt* (car t+s) check-timestamptz-equal?))))
+        (check-value/text* (car t+s) (cadr t+s) check-timestamptz-equal? #f)))
 
     (type-test-case '(interval)
+      (setup-temp-table)
       (for ([i+s some-intervals])
-        (when (or (memq dbsys '(postgresql))
+        (when (or (FLAG 'postgresql)
                   (sql-day-time-interval? i+s)
                   (sql-year-month-interval? i+s))
           (check-roundtrip (car i+s))
-          (when (memq dbsys '(postgresql))
+          (when (FLAG 'postgresql)
             (check-value/text (car i+s) (cadr i+s))))))
 
     (unless (ORFLAGS 'mysql)
@@ -540,37 +504,45 @@
           (check-roundtrip* (string->sql-bits s) check-bits-equal?))))
 
     (type-test-case '(point geometry)
+      (setup-temp-table)
       (check-roundtrip (point 0 0))
       (check-roundtrip (point 1 2))
       (check-roundtrip (point (exp 1) pi)))
 
     (type-test-case '(line-string geometry)
+      (setup-temp-table)
       (check-roundtrip (line-string (list (point 0 0) (point 1 1))))
       (check-roundtrip (line-string (list (point 0 0) (point 1 1) (point -5 7)))))
-    
+
     (type-test-case '(lseg geometry)
+      (setup-temp-table)
       (check-roundtrip (line-string (list (point 0 0) (point 1 1)))))
 
     (type-test-case '(polygon geometry)
+      (setup-temp-table)
       (check-roundtrip
        (polygon (line-string (list (point 0 0) (point 2 0) (point 1 1) (point 0 0))) '()))
-      (when (memq dbsys '(mysql))
+      (when (FLAG 'mysql)
         (check-roundtrip
          (polygon (line-string (list (point 0 0) (point 4 0) (point 2 2) (point 0 0)))
                   (list (line-string (list (point 1 1) (point 3 1)
                                            (point 1.5 1.5) (point 1 1))))))))
 
-    (when (ORFLAGS 'postgresql) ;; "Driver not capable"
+    (when (FLAG 'postgresql) ;; "Driver not capable"
       (type-test-case '(path)
+        (setup-temp-table)
         (check-roundtrip (pg-path #t (list (point 0 0) (point 1 1) (point -5 7))))
         (check-roundtrip (pg-path #f (list (point -1 -1) (point (exp 1) pi)))))
       (type-test-case '(box)
+        (setup-temp-table)
         (check-roundtrip (pg-box (point 10 10) (point 2 8))))
       (type-test-case '(circle)
+        (setup-temp-table)
         (check-roundtrip (pg-circle (point 1 2) 45))))
 
     (when (ANDFLAGS 'postgresql 'pg92)
       (type-test-case '(json)
+        (setup-temp-table)
         (define some-jsexprs
           (list #t #f 0 1 -2 pi "" "hello" "good\nbye" 'null
                 (hasheq 'a 1 'b 2 'c 'null)
@@ -578,12 +550,14 @@
         (for ([j some-jsexprs])
           (check-roundtrip j)))
       (type-test-case '(int4range)
+        (setup-temp-table)
         (check-roundtrip (pg-empty-range))
         ;; for now, only test things in canonical form... (FIXME)
         (check-roundtrip (pg-range 0 #t 5 #f))
         (check-roundtrip (pg-range #f #f -57 #f))
         (check-roundtrip (pg-range 1234 #t #f #f)))
       (type-test-case '(int8range)
+        (setup-temp-table)
         (check-roundtrip (pg-empty-range))
         ;; for now, only test things in canonical form... (FIXME)
         (check-roundtrip (pg-range 0 #t 5 #f))
@@ -592,6 +566,7 @@
         (check-roundtrip (pg-range (expt 2 60) #t (expt 2 61) #f)))
       ;; FIXME: numrange
       (type-test-case '(daterange)
+        (setup-temp-table)
         (define d1 (car (first some-dates)))
         (define d2 (car (second some-dates)))
         (define d3 (car (third some-dates)))
@@ -601,6 +576,7 @@
         (check-roundtrip (pg-range #f #f d2 #f))
         (check-roundtrip (pg-range d3 #t #f #f)))
       (type-test-case '(tsrange)
+        (setup-temp-table)
         (define ts1 (car (second some-timestamps)))
         (define ts2 (car (first some-timestamps)))
         (define ts3 (car (third some-timestamps)))
@@ -609,6 +585,7 @@
         (check-roundtrip (pg-range ts1 #f ts3 #f))
         (check-roundtrip (pg-range ts2 #f ts3 #t)))
       (type-test-case '(tstzrange)
+        (setup-temp-table)
         (define ts1 (car (second some-timestamptzs)))
         (define ts2 (car (first some-timestamptzs)))
         (define ts3 (car (third some-timestamptzs)))
@@ -619,6 +596,7 @@
 
     ;; --- Arrays ---
     (type-test-case '(boolean-array)
+      (setup-temp-table)
       (check-roundtrip (list->pg-array (list)))
       (check-roundtrip (list->pg-array (list #t)))
       (check-roundtrip (list->pg-array (list #t #t #f)))
@@ -628,6 +606,7 @@
       (check-=any "'t'::boolean" (list sql-null #t #f) #t))
 
     (type-test-case '(bytea-array)
+      (setup-temp-table)
       (check-roundtrip (list->pg-array (list)))
       (check-roundtrip (list->pg-array (list #"abc")))
       (check-roundtrip (list->pg-array (list #"a" #"bc" #"def")))
@@ -637,6 +616,7 @@
       (check-=any "'abc'::bytea" (list #"a" sql-null #"abc") #t))
 
     (type-test-case '(char1-array)
+      (setup-temp-table)
       (check-roundtrip (list->pg-array (list)))
       (check-roundtrip (list->pg-array (list #\a)))
       (check-roundtrip (list->pg-array (list #\a #\z)))
@@ -646,6 +626,7 @@
       (check-=any "'a'::\"char\"" (list #\a sql-null #\z) #t))
 
     (type-test-case '(smallint-array)
+      (setup-temp-table)
       (check-roundtrip (list->pg-array (list)))
       (check-roundtrip (list->pg-array (list 1)))
       (check-roundtrip (list->pg-array (list 1 2 3)))
@@ -655,6 +636,7 @@
       (check-=any "1::smallint" (list sql-null 1 2 3) #t))
 
     (type-test-case '(integer-array)
+      (setup-temp-table)
       (check-roundtrip (list->pg-array (list)))
       (check-roundtrip (list->pg-array (list 1)))
       (check-roundtrip (list->pg-array (list 1 2 3)))
@@ -664,6 +646,7 @@
       (check-=any "1" (list sql-null 1 2 3) #t))
 
     (type-test-case '(text-array)
+      (setup-temp-table)
       (check-roundtrip (list->pg-array (list)))
       (check-roundtrip (list->pg-array (list "abc")))
       (check-roundtrip (list->pg-array (list "a" "" "bc" "def" "")))
@@ -674,6 +657,7 @@
 
     #|
     (type-test-case '(character-array)
+      (setup-temp-table)
        ;; NOTE: seems to infer an elt type of character(1)...
        (check-roundtrip (list->pg-array (list)))
        (check-roundtrip (list->pg-array (list "abc")))
@@ -685,6 +669,7 @@
     |#
 
     (type-test-case '(varchar-array)
+      (setup-temp-table)
       (check-roundtrip (list->pg-array (list)))
       (check-roundtrip (list->pg-array (list "abc")))
       (check-roundtrip (list->pg-array (list "a" "" "bc" "def" "")))
@@ -694,6 +679,7 @@
       (check-=any "'abc'" (list "abc" "def" sql-null) #t))
 
     (type-test-case '(bigint-array)
+      (setup-temp-table)
       (check-roundtrip (list->pg-array (list)))
       (check-roundtrip (list->pg-array (list 1)))
       (check-roundtrip (list->pg-array (list 1 2 3)))
@@ -703,6 +689,7 @@
       (check-=any "1::bigint" (list sql-null 1 2 3) #t))
 
     (type-test-case '(point-array)
+      (setup-temp-table)
       (check-roundtrip (list->pg-array (list)))
       (check-roundtrip (list->pg-array (list (point 1 2))))
       (check-roundtrip (list->pg-array (list (point 1 2) sql-null (point 3 4))))
@@ -713,6 +700,7 @@
       |#)
 
     (type-test-case '(real-array)
+      (setup-temp-table)
       (check-roundtrip (list->pg-array (list)))
       (check-roundtrip (list->pg-array (list 1.0)))
       (check-roundtrip (list->pg-array (list 1.0 2.0 3.0)))
@@ -722,6 +710,7 @@
       (check-=any "1.0::real" (list sql-null 1.0 2.0 +inf.0) #t))
 
     (type-test-case '(double-array)
+      (setup-temp-table)
       (check-roundtrip (list->pg-array (list)))
       (check-roundtrip (list->pg-array (list 1.0)))
       (check-roundtrip (list->pg-array (list 1.0 2.0 3.0)))
@@ -731,6 +720,7 @@
       (check-=any "1.0::float8" (list sql-null 1.0 2.0 +inf.0) #t))
 
     (type-test-case '(timestamp-array)
+      (setup-temp-table)
       (define ts1 (sql-timestamp 1999 12 31 11 22 33 0 #f))
       (define ts2 (sql-timestamp 2011 09 13 15 17 19 0 #f))
       (check-roundtrip (list->pg-array (list)))
@@ -743,6 +733,7 @@
     ;; FIXME: add timestamptz-array test (harder due to tz conversion)
 
     (type-test-case '(date-array)
+      (setup-temp-table)
       (define ts1 (sql-date 1999 12 31))
       (define ts2 (sql-date 2011 09 13))
       (check-roundtrip (list->pg-array (list)))
@@ -753,6 +744,7 @@
       (check-=any "'1999-12-31'::date" (list ts1 sql-null ts2) #t))
 
     (type-test-case '(time-array)
+      (setup-temp-table)
       (define ts1 (sql-time 11 22 33 0 #f))
       (define ts2 (sql-time 15 17 19 0 #f))
       (check-roundtrip (list->pg-array (list)))
@@ -766,6 +758,7 @@
     ;; FIXME: add interval-array test
 
     (type-test-case '(interval-array)
+      (setup-temp-table)
       (define i1 (sql-interval 0 0 3 4 5 6 0))
       (define i2 (sql-interval 87 1 0 0 0 0 0))
       (define i3 (sql-interval 1 2 3 4 5 6 45000))
@@ -777,6 +770,7 @@
       (check-=any "'87 years 1 month'::interval" (list i1 sql-null i2) #t))
 
     (type-test-case '(decimal-array)
+      (setup-temp-table)
       (define d1 12345678901234567890)
       (define d2 1/20)
       (define d3 +nan.0)
