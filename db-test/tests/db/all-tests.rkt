@@ -1,5 +1,6 @@
 #lang racket/base
 (require racket/match
+         racket/list
          racket/cmdline
          racket/file
          racket/place
@@ -193,18 +194,24 @@ Testing profiles are flattened, not hierarchical.
 (define sqlite/p-test
   (specialize-test sqlite/p-unit))
 
-(define generic-test
-  (make-test-suite "Generic tests (no db)"
-    (list gen-misc:test
-          gen-sql-types:test
-          gen-query:test)))
+(define sqlite-tests
+  (append (list (list "sqlite3, memory" (specialize-test sqlite-unit)))
+          (if (place-enabled?)
+              (list (list "sqlite3, memory, #:use-place=#t" (specialize-test sqlite/p-unit)))
+              null)))
+
+(define generic-tests
+  (list (list "generic tests (no db)"
+              (make-test-suite "Generic tests (no db)"
+                               (list gen-misc:test
+                                     gen-sql-types:test
+                                     gen-query:test)))))
 
 ;; ----
 
-(define (make-all-tests label dbconfs)
-  (make-test-suite (format "All ~s tests" label)
-    (for/list ([dbconf (in-list dbconfs)])
-      (specialize-test (dbconf->unit dbconf)))))
+(define (make-all-tests dbconfs)
+  (for/list ([dbconf (in-list dbconfs)])
+    (specialize-test (dbconf->unit dbconf))))
 
 ;; ----
 
@@ -232,27 +239,20 @@ Testing profiles are flattened, not hierarchical.
  #:args labels
  (let* ([no-labels?
          (not (or include-generic? include-sqlite? (pair? labels)))]
-        [tests
-         (for/list ([label labels])
-           (cons label
-                 (make-all-tests label (get-dbconf (string->symbol label)))))]
-        [tests
-         (cond [(or include-sqlite? no-labels?)
-                (append (list (cons "sqlite3, memory" sqlite-test))
-                        (if (place-enabled?)
-                            (list (cons "sqlite3, memory, #:use-place=#t" sqlite/p-test))
-                            null)
-                        tests)]
-               [else tests])]
-        [tests
-         (cond [(or include-generic? no-labels?)
-                (cons (cons "generic" generic-test) tests)]
-               [else tests])])
+        [tests ;; (listof (cons string (listof test-suite)))
+         (append (cond [(or include-sqlite? no-labels?)
+                        sqlite-tests]
+                       [else null])
+                 (cond [(or include-generic? no-labels?)
+                        generic-tests]
+                       [else null])
+                 (for/list ([label labels])
+                   (cons label (make-all-tests (get-dbconf (string->symbol label))))))])
    (cond [gui?
           (let* ([test/gui (dynamic-require 'rackunit/gui 'test/gui)])
-            (apply test/gui #:wait? #t (map cdr tests)))]
+            (apply test/gui #:wait? #t (append* (map cdr tests))))]
          [else
           (for ([test tests])
             (printf "Running ~s tests\n" (car test))
-            (time (run-tests (cdr test)))
+            (time (run-tests (make-test-suite (car test) (cdr test))))
             (newline))])))
