@@ -17,7 +17,7 @@ This section discusses issues related to specific database systems.
 PostgreSQL and MySQL servers are sometimes configured by default to
 listen only on local sockets (also called ``unix domain
 sockets''). This library provides support for communication over local
-sockets on Linux and Mac OS X. If local socket communication is not
+sockets on Linux and Mac OS. If local socket communication is not
 available, the server must be reconfigured to listen on a TCP port.
 
 The socket file for a PostgreSQL server is located in the directory
@@ -60,7 +60,7 @@ file. This library currently supports only cleartext and md5-hashed
 passwords, and it does not send cleartext passwords unless explicitly
 ordered to (see @racket[postgresql-connect]). These correspond to the
 @tt{md5} and @tt{password} authentication methods in the parlance of
-@tt{pg_hba.conf}, respectively. On Linux and Mac OS X, @tt{ident}
+@tt{pg_hba.conf}, respectively. On Linux and Mac OS, @tt{ident}
 authentication is automatically supported for local sockets (as of
 PostgreSQL 9.1, this authentication method has been renamed
 @tt{peer}). The @tt{gss}, @tt{sspi}, @tt{krb5}, @tt{pam}, and
@@ -127,8 +127,8 @@ SQLite support requires the appropriate native library.
 @item{On Windows, the library is @tt{sqlite3.dll}. It is included in
 the Racket distribution.}
 
-@item{On Mac OS X, the library is @tt{libsqlite3.0.dylib}, which is
-included (in @tt{/usr/lib}) in Mac OS X version 10.4 onwards.}
+@item{On Mac OS, the library is @tt{libsqlite3.0.dylib}, which is
+included (in @tt{/usr/lib}) in Mac OS version 10.4 onwards.}
 
 @item{On Linux, the library is @tt{libsqlite3.so.0}. It is included in
 the @tt{libsqlite3-0} package in Debian/Ubuntu and in the @tt{sqlite}
@@ -162,9 +162,9 @@ connect to.
 @item{On Windows, the driver manager is @tt{odbc32.dll}, which is
 included automatically with Windows.}
 
-@item{On Mac OS X, the driver manager is @tt{libiodbc.2.dylib}
+@item{On Mac OS, the driver manager is @tt{libiodbc.2.dylib}
 (@hyperlink["http://www.iodbc.org"]{iODBC}), which is included (in
-@tt{/usr/lib}) in Mac OS X version 10.2 onwards.}
+@tt{/usr/lib}) in Mac OS version 10.2 onwards.}
 
 @item{On Linux, the driver manager is @tt{libodbc.so.1}
 (@hyperlink["http://www.unixodbc.org"]{unixODBC}---iODBC is not

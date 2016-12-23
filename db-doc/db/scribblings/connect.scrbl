@@ -64,7 +64,7 @@ Base connections are made using the following functions.
   also @secref{connecting-to-server} for notes on socket
   paths. Supplying a @racket[socket] argument of @racket['guess] is
   the same as supplying @racket[(postgresql-guess-socket-path)].
-  Sockets are only available under Linux (x86) and Mac OS X.
+  Sockets are only available under Linux (x86) and Mac OS.
 
   If the server requests password authentication, the
   @racket[password] argument must be present; otherwise an exception

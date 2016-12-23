@@ -118,7 +118,7 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
      (values (ffi-lib "odbc32.dll" #:fail (lambda () #f))
              2))
     ((macosx)
-     ;; Mac OS X uses iodbc, which defines SQLWCHAR as wchar_t, as 32-bit
+     ;; Mac OS uses iodbc, which defines SQLWCHAR as wchar_t, as 32-bit
      (values (ffi-lib "libiodbc" '("2" #f) #:fail (lambda () #f))
              4))
     ((unix)
