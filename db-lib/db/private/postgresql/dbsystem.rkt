@@ -2,6 +2,8 @@
 (require racket/class
          racket/list
          racket/match
+         racket/string
+         racket/format
          (prefix-in srfi: srfi/19)
          json
          db/private/generic/interfaces
@@ -228,6 +230,8 @@
   (2278 void              #f  1 recv-void   #f)
   (2287 record-array      #f  1 recv-array  #f)
 
+  (2950 uuid              0 1 recv-uuid send-uuid)
+
   ;; The following types are not supported.
   ;; (But putting their names here yields better not-supported errors.)
 
@@ -253,7 +257,7 @@
   (2279 trigger           #f 0 #f #f)
   (2281 internal          #f 0 #f #f)
   (2282 opaque            #f 0 #f #f)
-  (2950 uuid              #f 0 #f #f)
+
   (2951 uuid-array        #f 0 #f #f)
   (3614 tsvector          #f 0 #f #f)
   (3515 tsquery           #f 0 #f #f)
@@ -334,6 +338,21 @@ jsonb = version:byte byte*
 (define (recv-bytea buf start end)
   (subbytes buf start end))
 
+
+(define (byte->padded-hex-string b)
+  (~a (format "~X" b) #:min-width 2 #:align 'right #:pad-string "0"))
+
+(define (recv-uuid buf start end)
+  (let* ([the-bytes (recv-bytea buf start end)]
+         [the-strings (map byte->padded-hex-string (bytes->list the-bytes))]
+         [no-dashes (apply string-append "" the-strings)])
+    (string-append
+     (substring no-dashes 0 8)  "-"
+     (substring no-dashes 8 12) "-"
+     (substring no-dashes 12 16) "-"
+     (substring no-dashes 16 20) "-"
+     (substring no-dashes 20 32))))
+
 (define (recv-string buf start end)
   (bytes->string/utf-8 buf #f start end))
 
@@ -367,6 +386,7 @@ jsonb = version:byte byte*
          [points (append points0 (list (car points0)))])
     (polygon (line-string points)
              null)))
+
 
 (define (recv-date buf start end)
   (let* ([jd (+ (integer-bytes->integer buf #t #t start (+ start 4)) POSTGRESQL-JD-ADJUST)]
@@ -576,6 +596,16 @@ jsonb = version:byte byte*
 (define (send-string f x)
   (unless (string? x) (send-error f "string" x #:contract 'string?))
   (string->bytes/utf-8 x))
+
+
+(define (send-uuid f x)
+  (println (string? x))
+  (println  x)
+  (unless (string? x) (send-error f "uuid" x #:contract 'string?))
+  (let* ([no-dashes (string-replace x "-" "")])
+    (list->bytes
+     (for/list ([k (in-range 16)])
+       (string->number (substring no-dashes (* 2 k) (+ 2 (* 2 k))) 16)))))
 
 (define (send-int2 f n)
   (unless (int16? n) (send-error f "int2" n #:contract 'int16?))
