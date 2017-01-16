@@ -173,6 +173,8 @@
   (604  polygon      0   1  recv-polygon      send-polygon)
   (718  circle       0   1  recv-circle       send-circle)
 
+  (2950 uuid              0 1 recv-uuid send-uuid)
+  
   (3904 int4range    9.2 1  (recv-range 23)   (send-range 23))
   (3926 int8range    9.2 1  (recv-range 20)   (send-range 20))
   (3906 numrange     9.2 1  (recv-range 1700) (send-range 1700))
@@ -217,6 +219,8 @@
   (1231 decimal-array     0   1  recv-array (send-array 1700))
   (1270 timetz-array      0   1  recv-array (send-array 1266))
 
+  (2951 uuid-array       0 1 recv-array (send-array 2950))
+  
   (3905 int4range-array   9.2 1  recv-array (send-array 3904))
   (3927 int8range-array   9.2 1  recv-array (send-array 3926))
   (3907 numrange-array    9.2 1  recv-array (send-array 3906))
@@ -230,7 +234,8 @@
   (2278 void              #f  1 recv-void   #f)
   (2287 record-array      #f  1 recv-array  #f)
 
-  (2950 uuid              0 1 recv-uuid send-uuid)
+  
+  
 
   ;; The following types are not supported.
   ;; (But putting their names here yields better not-supported errors.)
@@ -258,7 +263,7 @@
   (2281 internal          #f 0 #f #f)
   (2282 opaque            #f 0 #f #f)
 
-  (2951 uuid-array        #f 0 #f #f)
+
   (3614 tsvector          #f 0 #f #f)
   (3515 tsquery           #f 0 #f #f)
   (3642 gtsvector         #f 0 #f #f)
