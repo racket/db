@@ -69,6 +69,7 @@ along with their corresponding Racket representations.
   @racket['decimal]       @& @tt{numeric}            @& @racket[rational?] or @racket[+nan.0] @//
   @racket['character]     @& @tt{bpchar}             @& @racket[string?] @//
   @racket['varchar]       @& @tt{varchar}            @& @racket[string?] @//
+  @racket['uuid]          @& @tt{uuid}               @& @racket[string?] @//
   @racket['text]          @& @tt{text}               @& @racket[string?] @//
   @racket['bytea]         @& @tt{bytea}              @& @racket[bytes?] @//
   @racket['date]          @& @tt{date}               @& @racket[sql-date?] @//
