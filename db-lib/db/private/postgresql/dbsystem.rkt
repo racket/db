@@ -599,8 +599,6 @@ jsonb = version:byte byte*
 
 
 (define (send-uuid f x)
-  (println (string? x))
-  (println  x)
   (unless (string? x) (send-error f "uuid" x #:contract 'string?))
   (let* ([no-dashes (string-replace x "-" "")])
     (list->bytes
