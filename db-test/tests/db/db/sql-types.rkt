@@ -538,7 +538,9 @@
         (check-roundtrip (pg-box (point 10 10) (point 2 8))))
       (type-test-case '(circle)
         (setup-temp-table)
-        (check-roundtrip (pg-circle (point 1 2) 45))))
+        (check-roundtrip (pg-circle (point 1 2) 45)))
+      (type-test-case '(uuid)
+        (check-roundtrip "84cd6cee-edd0-4701-9618-d0ef84cee55d")))
 
     (when (ANDFLAGS 'postgresql 'pg92)
       (type-test-case '(json)
