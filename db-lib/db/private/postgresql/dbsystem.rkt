@@ -3,7 +3,7 @@
          racket/list
          racket/match
          racket/string
-         racket/format
+         file/sha1
          (prefix-in srfi: srfi/19)
          json
          db/private/generic/interfaces
@@ -338,13 +338,9 @@ jsonb = version:byte byte*
 (define (recv-bytea buf start end)
   (subbytes buf start end))
 
-(define (byte->padded-hex-string b)
-  (~a (format "~X" b) #:min-width 2 #:align 'right #:pad-string "0"))
-
 (define (recv-uuid buf start end)
   (let* ([the-bytes (recv-bytea buf start end)]
-         [the-strings (map byte->padded-hex-string (bytes->list the-bytes))]
-         [no-dashes (apply string-append "" the-strings)])
+         [no-dashes (bytes->hex-string the-bytes)])
     (string-append
      (substring no-dashes 0 8)  "-"
      (substring no-dashes 8 12) "-"
@@ -596,11 +592,8 @@ jsonb = version:byte byte*
   (string->bytes/utf-8 x))
 
 (define (send-uuid f x)
-  (unless (string? x) (send-error f "uuid" x #:contract 'string?))
-  (let* ([no-dashes (string-replace x "-" "")])
-    (list->bytes
-     (for/list ([k (in-range 16)])
-       (string->number (substring no-dashes (* 2 k) (+ 2 (* 2 k))) 16)))))
+  (unless (uuid? x) (send-error f "uuid" x #:contract 'uuid?))
+  (hex-string->bytes (string-replace x "-" "")))
 
 (define (send-int2 f n)
   (unless (int16? n) (send-error f "int2" n #:contract 'int16?))

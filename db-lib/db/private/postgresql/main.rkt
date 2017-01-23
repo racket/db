@@ -5,10 +5,12 @@
          db/private/generic/interfaces
          db/private/generic/common
          racket/unix-socket
-         "connection.rkt")
+         "connection.rkt"
+         "../../util/postgresql.rkt")
 (provide postgresql-connect
          postgresql-guess-socket-path
-         postgresql-password-hash)
+         postgresql-password-hash
+         uuid?)
 
 (define (postgresql-connect #:user user
                             #:database database
