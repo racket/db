@@ -105,6 +105,10 @@ polygon = #points:int4 (x y : float8)*
 (define (pg-range-or-empty? v)
   (or (pg-empty-range? v) (pg-range? v)))
 
+(define (uuid? x)
+  (and (string? x)
+       (regexp-match? #px"[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}" x)))
+
 (provide/contract
  [struct pg-box ([ne point?] [sw point?])]
  [struct pg-circle ([center point?] [radius (and/c real? (not/c negative?))])]
@@ -126,4 +130,5 @@ polygon = #points:int4 (x y : float8)*
                    [includes-lb? boolean?]
                    [ub any/c]
                    [includes-ub? boolean?])]
- [pg-range-or-empty? (-> any/c boolean?)])
+ [pg-range-or-empty? (-> any/c boolean?)]
+ [uuid? (-> any/c boolean?)])
