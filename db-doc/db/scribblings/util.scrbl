@@ -1,7 +1,7 @@
 #lang scribble/doc
 @(require scribble/manual
           scribble/eval
-          scribble/struct
+          scribble/bnf
           racket/sandbox
           racket/runtime-path
           "config.rkt"
@@ -210,6 +210,28 @@ permissible types are exact integers, real numbers, and
 Returns @racket[#t] if @racket[v] is a @racket[pg-range] or
 @racket[pg-empty-range] instance; otherwise, returns @racket[#f].
 }
+
+@defproc[(uuid? [v any/c]) boolean?]{
+
+Returns @racket[#t] if @racket[v] is a
+@tech[#:doc '(lib "scribblings/reference/reference.scrbl")]{string}
+that matches the format of a hexadecimal representation of a
+@hyperlink["https://en.wikipedia.org/wiki/Universally_unique_identifier"]{UUID}.
+Specifically, it must be a series of hexadecimal digits separated by
+dashes, in the following pattern:
+
+@(let* ([digit @nonterm{digit@subscript{16}}]
+        [digit4 (kleenerange 4 4 digit)]
+        [digit8 (kleenerange 8 8 digit)]
+        [digit12 (kleenerange 12 12 digit)]
+        [dash @litchar{-}])
+   @BNF[(list @nonterm{uuid}
+              @BNF-seq[digit8 dash digit4 dash digit4
+                       dash digit4 dash digit12])])
+
+The digits themselves are case-insensitive, accepting both uppercase
+and lowercase characters. Otherwise, if @racket[v] is not a string
+matching the above pattern, this function returns @racket[#f].}
 
 @deftogether[[
 @defstruct*[pg-box
