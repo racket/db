@@ -8,8 +8,7 @@
  ["private/postgresql/main.rkt"
   (postgresql-connect
    postgresql-guess-socket-path
-   postgresql-password-hash
-   uuid?)]
+   postgresql-password-hash)]
  ["private/mysql/main.rkt"
   (mysql-connect
    mysql-guess-socket-path
@@ -45,8 +44,6 @@
   (-> path-string?)]
  [postgresql-password-hash
   (-> string? string? string?)]
- [uuid?
-  (-> any/c boolean?)]
 
  ;; Duplicates contracts at mysql.rkt
  [mysql-connect
