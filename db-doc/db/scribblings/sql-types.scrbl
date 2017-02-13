@@ -170,6 +170,8 @@ PostgreSQL defines many other types, such as network addresses and row
 types. These are currently not supported, but support may be added in
 future versions of this library.
 
+@history[#:changed "1.1" @elem{Added support for the @racket['uuid] type.}]
+
 
 @subsection[#:tag "mysql-types"]{MySQL Types}
 

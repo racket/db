@@ -231,7 +231,10 @@ dashes, in the following pattern:
 
 The digits themselves are case-insensitive, accepting both uppercase
 and lowercase characters. Otherwise, if @racket[v] is not a string
-matching the above pattern, this function returns @racket[#f].}
+matching the above pattern, this function returns @racket[#f].
+
+@history[#:added "1.1"]
+}
 
 @deftogether[[
 @defstruct*[pg-box
