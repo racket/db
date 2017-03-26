@@ -2,7 +2,12 @@
 (require racket/match
          racket/set
          racket/string
-         file/sha1)
+         racket/date
+         file/sha1
+         db/private/generic/interfaces
+         db/private/generic/sql-data
+         (only-in db/util/datetime srfi-date->sql-timestamp sql-datetime->srfi-date)
+         (only-in db/util/postgresql uuid?))
 (provide (all-defined-out))
 
 (define VERSION #x03)
@@ -131,7 +136,8 @@
 
 ;; [short bytes] doesn't make sense, no null representation
 (define (write-ShortBytes out bs)
-  (write-Short out (bytes-length bs)))
+  (write-Short out (bytes-length bs))
+  (io:write-bytes out bs))
 (define (read-ShortBytes in)
   (define len (read-Short in))
   (io:read-bytes in len))
@@ -230,19 +236,22 @@
      (write-LongString out query)
      (write-Consistency out consist)
      (io:write-byte out (+ (if params #x01 0)))
-     (when params
-       (write-Listof out (or params null) write-Bytes))]
+     (when params (write-QueryParameters out params))]
     [(Prepare query)
      (write-LongString out query)]
     [(Execute stmt consist params)
      (write-ShortBytes out stmt)
      (write-Consistency out consist)
      (io:write-byte out (+ (if params #x01 0)))
-     (when params
-       (write-Listof out params write-Bytes))]
+     (when params (write-QueryParameters out params))]
     [(Register types)
      (write-Listof out types write-String)]
     ))
+
+(define (write-QueryParameters out params)
+  (write-Listof out params write-QueryParameter))
+(define (write-QueryParameter out param)
+  (if (sql-null? param) (write-Int out -1) (io:write-bytes out param)))
 
 (define (message->opcode msg)
   (cond [(Startup? msg)      'STARTUP]
@@ -270,16 +279,23 @@
 ;; - (Ready)
 ;; - (Authenticate String)
 ;; - (Supported StringMultiMap)
-;; - (Result:Void)
-;; - (Result:Rows Bytes/#f DVecs/#f (Listof Row))
-;; - (Result:SetKeyspace String)
-;; - (Result:Prepared Bytes DVecs/#f DVecs/#f)
-;; - (Result:SchemaChange String String (U String (List String String)))
+;; - (Result:Void _)
+;; - (Result:Rows _ Bytes/#f DVecs/#f (Listof Row))
+;; - (Result:SetKeyspace _ String)
+;; - (Result:Prepared _ Bytes DVecs/#f DVecs/#f)
+;; - (Result:SchemaChange _ String String (U String (List String String)))
 
 ;; A DVecs is (Listof DVec)
 ;; A DVec is (vector keyspace:String table:String name:String Type)
 ;; A Row is (Vectorof Bytes)
 (define (dvec-type dv) (vector-ref dv 3))
+(define (dvec->field-info dv)
+  (match dv
+    [(vector keyspace table name type)
+     `((keyspace . ,keyspace)
+       (table . ,table)
+       (name . ,name)
+       (type . ,type))]))
 
 (struct Error (code message) #:transparent)
 (struct Ready () #:transparent)
@@ -324,7 +340,7 @@
        [(#x0003)
         (Result:SetKeyspace 'SET_KEYSPACE (read-String in))]
        [(#x0004)
-        (define stmt (read-Int in))
+        (define stmt (read-ShortBytes in))
         (define param-info (read-Metadata in #f))
         (define result-info (read-Metadata in #f))
         (Result:Prepared 'PREPARED stmt param-info result-info)]
@@ -431,42 +447,52 @@
       (vector-set! row i (decode-value type (vector-ref row i))))))
 
 (define (decode-value type bs)
-  (case type
-    [(ascii) (bytes->string/latin-1 bs)]
-    [(bigint int) (integer-bytes->integer bs #t #t)]
-    [(blob) bs]
-    [(boolean) (not (equal? bs #"\0"))]
-    [(decimal)
-     (define nexp (integer-bytes->integer bs #t #t 0 4))
-     (define mantissa (base256->int (subbytes bs 4)))
-     (* mantissa (expt 10 (- nexp)))]
-    [(double float) (floating-point-bytes->real bs #t)]
-    [(inet) (read-Inet (open-input-bytes bs))]
-    [(text varchar) (bytes->string/utf-8 bs)]
-    [(timestamp)
-     (define ms (integer-bytes->integer bs #t #t))
-     (seconds->date (/ ms 1000) #f)]
-    [(uuid timeuuid) (read-UUID (open-input-bytes bs))]
-    [(varint) (base256->int bs)]
-    [else
-     (match type
-       [`(list ,eltype)
-        (map (lambda (e) (decode-value eltype e))
-             (read-IntListof (open-input-bytes bs) read-Bytes))]
-       [`(set ,eltype)
-        (list->set
+  (if (not bs)
+      sql-null
+      (match type
+        ['ascii
+         (bytes->string/latin-1 bs)]
+        [(or 'bigint 'int)
+         (integer-bytes->integer bs #t #t)]
+        ['blob
+         bs]
+        ['boolean
+         (not (equal? bs #"\0"))]
+        ['decimal
+         (define nexp (integer-bytes->integer bs #t #t 0 4))
+         (define mantissa (base256->int (subbytes bs 4)))
+         (* mantissa (expt 10 (- nexp)))]
+        [(or 'double 'float)
+         (floating-point-bytes->real bs #t)]
+        ['inet
+         (read-Inet (open-input-bytes bs))]
+        [(or 'text 'varchar)
+         (bytes->string/utf-8 bs)]
+        ['timestamp
+         (define ms (integer-bytes->integer bs #t #t))
+         (srfi-date->sql-timestamp
+          (seconds->date (/ ms 1000) #f))]
+        [(or 'uuid 'timeuuid)
+         (read-UUID (open-input-bytes bs))]
+        ['varint
+         (base256->int bs)]
+        [`(list ,eltype)
          (map (lambda (e) (decode-value eltype e))
-              (read-IntListof (open-input-bytes bs) read-Bytes)))]
-       [`(map ,keytype ,valtype)
-        (read-IntListof (open-input-bytes bs)
-                        (lambda (in)
-                          (cons (decode-value keytype (read-Bytes in))
-                                (decode-value valtype (read-Bytes in)))))]
-       [`(tuple ,@eltypes)
-        (define in (open-input-bytes bs))
-        (for/vector ([eltype (in-list eltypes)])
-          (decode-value eltype (read-Bytes in)))]
-       [else (error 'decode-value "unsupported type: ~e" type)])]))
+              (read-IntListof (open-input-bytes bs) read-Bytes))]
+        [`(set ,eltype)
+         (list->set
+          (map (lambda (e) (decode-value eltype e))
+               (read-IntListof (open-input-bytes bs) read-Bytes)))]
+        [`(map ,keytype ,valtype)
+         (read-IntListof (open-input-bytes bs)
+                         (lambda (in)
+                           (cons (decode-value keytype (read-Bytes in))
+                                 (decode-value valtype (read-Bytes in)))))]
+        [`(tuple ,@eltypes)
+         (define in (open-input-bytes bs))
+         (for/vector ([eltype (in-list eltypes)])
+           (decode-value eltype (read-Bytes in)))]
+        [else (error 'decode-value "unsupported type: ~e" type)])))
 
 (define (base256->int bs)
   (define unsigned (base256->uint bs))
@@ -477,3 +503,122 @@
 (define (base256->uint bs)
   (for/fold ([acc 0]) ([b (in-bytes bs)])
     (+ b (arithmetic-shift acc 8))))
+
+(define (int->base256 n)
+  (cond [(negative? n)
+         (define absn (abs n))
+         (define 2^len (let loop ([acc 128])
+                         (if (<= absn acc) (* 2 acc) (loop (* acc 256)))))
+         (uint->base256 (- 2^len absn) #f)]
+        [else (uint->base256 n #t)]))
+
+(define (uint->base256 n [zpad? #f])
+  (define out (open-output-bytes))
+  (let loop ([n n] [last-low? #f])
+    (if (zero? n)
+        (when (and zpad? (not last-low?))
+          (write-byte 0 out))
+        (let ([r (remainder n 256)])
+          (loop (quotient n 256) (< r #x80))
+          (write-byte r out))))
+  (get-output-bytes out))
+
+;; encode-value : Symbol Type Any -> Bytes
+(define (encode-value who type0 v0)
+  (define (err)
+    (error/no-convert who "Cassandra" type0 v0 #:contract (type->contract-sexp type0)))
+  (define (encode type v)
+    (cond [(sql-null? v)
+           (integer->integer-bytes -1 4 #t #t)]
+          [else
+           (define bs (encode* type v))
+           (bytes-append (integer->integer-bytes (bytes-length bs) 4 #t #t) bs)]))
+  (define (encode* type v)
+    (match type
+      ['ascii
+       (unless (and (string? v) (regexp-match #px"^[[:ascii:]]*$" v)) (err))
+       (string->bytes/latin-1 v)]
+      ['bigint
+       (unless (int64? v) (err))
+       (integer->integer-bytes v 8 #t #t)]
+      ['int
+       (unless (int32? v) (err))
+       (integer->integer-bytes v 4 #t #t)]
+      ['blob
+       (unless (bytes? v) (err))
+       v]
+      ['boolean
+       (case v
+         [(#t) #"\1"]
+         [(#f) #"\0"]
+         [else (err)])]
+      ['decimal
+       (error 'encode-value "unsupported type: ~e" type)]
+      ['double
+       (unless (real? v) (err))
+       (real->floating-point-bytes v 8 #t)]
+      ['float
+       (unless (real? v) (err))
+       (real->floating-point-bytes v 4 #t)]
+      ['inet
+       (error 'encode-value "unsupported type: ~e" type)]
+      [(or 'text 'varchar)
+       (unless (string? v) (err))
+       (string->bytes/utf-8 v)]
+      ['timestamp
+       (unless (or (sql-timestamp? v) (date? v)) (err))
+       (define d (if (sql-timestamp? v) (sql-datetime->srfi-date v) v))
+       (define ms (inexact->exact (round (* 1000 (date*->seconds v)))))
+       (integer->integer-bytes ms 8 #t #t)]
+      [(or 'uuid 'timeuuid)
+       (unless (uuid? v) (err))
+       (define out (open-output-bytes))
+       (write-UUID v)
+       (get-output-bytes out)]
+      ['varint
+       (unless (exact-integer? v) (err))
+       (int->base256 v)]
+      [`(list ,eltype)
+       (unless (list? v) (err))
+       (let ([b (apply bytes-append (map (lambda (el) (encode eltype el)) v))])
+         (bytes-append (integer->integer-bytes (length v) 4 #t #t) b))]
+      [`(set ,eltype)
+       (unless (set? v) (err))
+       (let ([b (apply bytes-append (map (lambda (el) (encode eltype el)) (set->list v)))])
+         (bytes-append (integer->integer-bytes (set-count v) 4 #t #t) b))]
+      [`(map ,keytype ,valtype)
+       (unless (and (list? v) (andmap pair? v)) (err))
+       (define (encode-pair p) (bytes-append (encode keytype (car p)) (encode valtype (cdr p))))
+       (let ([b (apply bytes-append (map encode-pair v))])
+         (bytes-append (integer->integer-bytes (length v) 4 #t #t) b))]
+      [`(tuple ,@eltypes)
+       (unless (and (vector? v) (= (vector-length v) (length eltypes))) (err))
+       (apply bytes-append
+              (for/list ([eltype (in-list eltypes)] [el (in-vector v)])
+                (encode eltype el)))]
+      [else (error 'encode-value "unsupported type: ~e" type)]))
+  (encode type0 v0))
+
+(define (type->contract-sexp type)
+  (let loop ([type type])
+    (match type
+      ['ascii '(and/c string? #px"^[[:ascii:]]*$")]
+      ['bigint 'int64?]
+      ['int 'int32?]
+      ['blob 'bytes?]
+      ['boolean 'boolean?]
+      ['decimal '(and/c real? exact?)]
+      ['double 'real?]
+      ['float 'real?]
+      ;; ['inet ???]
+      ['text 'string?]
+      ['varchar 'string?]
+      ['timestamp 'date?]
+      ['uuid 'uuid?]
+      ['timeuuid 'uuid?]
+      ['varint 'exact-integer?]
+      [`(list ,eltype) `(listof ,(loop eltype))]
+      [`(set ,eltype) `(setof ,(loop eltype))]
+      [`(map ,ktype ,vtype) `(listof (cons/c ,(loop ktype) ,(vtype)))]
+      [`(tuple ,@eltypes) `(vector ,@(map loop eltypes))]
+      [_ (error 'encode-value "unsupported type: ~e" type)])))
