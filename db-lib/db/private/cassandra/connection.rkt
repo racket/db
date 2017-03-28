@@ -9,13 +9,14 @@
          "dbsystem.rkt")
 (provide connection%)
 
+(define current-consistency (make-parameter 'ONE))
+
 ;; ========================================
 
 (define connection%
   (class* statement-cache% (connection<%>)
     (init-field inport
                 outport)
-    (field [consistency 'ONE])
 
     (inherit call-with-lock
              call-with-lock*
@@ -204,9 +205,9 @@
       (fresh-exchange)
       (match stmt
         [(statement-binding pst params)
-         (buffer-message (Execute (send pst get-handle) consistency params))]
+         (buffer-message (Execute (send pst get-handle) (current-consistency) params))]
         [(? string? stmt)
-         (buffer-message (Query stmt consistency #f))])
+         (buffer-message (Query stmt (current-consistency) #f))])
       (call-with-sync who (lambda () (query1:collect who stmt))))
 
     ;; check-statement : symbol statement -> statement
