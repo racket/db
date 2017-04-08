@@ -77,7 +77,7 @@
 
 ;; ============================================================
 
-(require db/private/generic/functions)
+(require db/private/generic/functions2)
 
 (define fetch-size/c
   (or/c exact-positive-integer? +inf.0))
