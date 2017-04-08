@@ -10,6 +10,10 @@
          (only-in db/util/postgresql uuid?))
 (provide (all-defined-out))
 
+;; References:
+;; https://git-wip-us.apache.org/repos/asf?p=cassandra.git;a=blob_plain;f=doc/native_protocol_v3.spec
+;; https://git-wip-us.apache.org/repos/asf?p=cassandra.git;a=blob_plain;f=doc/native_protocol_v4.spec
+
 (define VERSION #x03)
 (define OUT-FLAGS #x00)
 (define MAX-FRAME-LENGTH (expt 2 28))
