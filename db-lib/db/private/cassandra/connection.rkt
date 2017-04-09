@@ -200,12 +200,36 @@
     ;; ========================================
     ;; == Cache
 
-    ;; FIXME: need to reimplement statement cache
+    ;; FIXME: empty cache on schema change event?
+
+    ;; pst-cache : Hash[ String => PreparedStatement ]
+    (define pst-cache (make-hash))
+
+    (define/private (get-cached-statement sql)
+      (cond [(hash-ref pst-cache sql #f)
+             => (lambda (pst)
+                  (dprintf "  ** using cached statement\n")
+                  pst)]
+            [else
+             (dprintf "  ** statement not in cache\n")
+             #f]))
+
+    (define/private (cache-statement! pst)
+      (let ([sql (send pst get-stmt)])
+        (when sql
+          (dprintf "  ** caching statement\n")
+          (hash-set! pst-cache sql pst))))
 
     ;; ========================================
     ;; == Prepare
 
-    (define/public (prepare who stmt _close-on-exec?)
+    (define/public (prepare who stmt close-on-exec?)
+      (or (get-cached-statement stmt)
+          (let ([pst (prepare1 who stmt)])
+            (cache-statement! pst)
+            pst)))
+
+    (define/private (prepare1 who stmt)
       (call/lock/streamid who
         (lambda (streamid) (send-message streamid (Prepare stmt)))
         (lambda (lwac)
