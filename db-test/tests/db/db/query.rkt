@@ -596,7 +596,22 @@
                  (lambda () (query-exec c create-table-stmt))) ; Second execution, raise error due to table already existing.
           ; Verify exn:fail raised has expected message.
           (check-exn #rx"table 'test' already exists"
-                 (lambda () (query-exec c create-table-stmt))))))))
+                 (lambda () (query-exec c create-table-stmt))))))
+
+    ;; Added May 2017.
+    ;; Any well-formed single statement query which is terminated by a semi-colon and has extra space
+    ;; after the semi-colon raises 'multiple statements given' error.
+    ;; This has been fixed.
+    (unless (or (ANDFLAGS 'odbc 'ispg) (ORFLAGS 'isdb2))
+      (test-case "A semi-colon terminated single statement query with extra space do not cause multiple statements in string error"
+        ; Use a simple select statement for our example but create table first.
+        (define create-table-stmt "Create Table 'test' ('notes' Text);")
+        (define select-stmt "Select * from test; ") ; Note extra single space right after the semi-colon.
+        (with-connection c
+          (query-exec c create-table-stmt) ; Create table first.
+          ; Verify no exn:fail is raised.
+          (check-not-exn
+                 (lambda () (query-exec c select-stmt))))))))
 
 (define virtual-statement-tests
   (let ()
