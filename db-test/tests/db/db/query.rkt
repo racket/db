@@ -2,6 +2,7 @@
 (require racket/string
          rackunit
          "../config.rkt"
+         "utilities.rkt"
          db/base)
 (import database^ config^)
 (export test^)
@@ -564,7 +565,38 @@
       (with-connection c
         (check-exn exn:fail? (lambda () (query-value c "select nonsuch from notthere")))
         (check-equal? (query-value c (select-val "17"))
-                      (if (ANDFLAGS 'odbc 'issl) "17" 17))))))
+                      (if (ANDFLAGS 'odbc 'issl) "17" 17))))
+
+    ;; Added 23 May 2017.
+    ;; In certain cases malformed queries do not cause expected syntax errors to be raised
+    ;; instead they trigger a 'multiple statements given' error which is misleading.
+    ;; Fixed so correct errors are raised.
+    (unless (or (ANDFLAGS 'odbc 'ispg) (ORFLAGS 'isdb2))
+      (test-case "malformed query do not cause multiple statements in string error"
+        (with-connection c
+          ; Verify multiple statements given error is not the exn:fail that was raised.
+          (check-exn exn:fail-is-not-multiple-statements-error?
+                 (lambda () (query-exec c "Select ,* from nonexistenttable")))
+          ; Verify exn:fail raised has expected message.
+          (check-exn #rx"near \",\": syntax error"
+                 (lambda () (query-exec c "Select ,* from nonexistenttable"))))))
+
+    ;; Added 23 May 2017.
+    ;; 'Create Table' query executed twice against same connection raises 'multiple statements given' error
+    ;; instead of raising the more correct 'table already exists' error.
+    ;; This has been fixed.
+    (unless (or (ANDFLAGS 'odbc 'ispg) (ORFLAGS 'isdb2))
+      (test-case "DDL query erroneously executed more than once do not cause multiple statements in string error"
+        ; Use Create Table for our DDL query example.
+        (define create-table-stmt "Create Table 'test' ('notes' Text)")
+        (with-connection c
+          (query-exec c create-table-stmt) ; First execution, no error raised.
+          ; Verify multiple statements given error is not the exn:fail that was raised.
+          (check-exn exn:fail-is-not-multiple-statements-error?
+                 (lambda () (query-exec c create-table-stmt))) ; Second execution, raise error due to table already existing.
+          ; Verify exn:fail raised has expected message.
+          (check-exn #rx"table 'test' already exists"
+                 (lambda () (query-exec c create-table-stmt))))))))
 
 (define virtual-statement-tests
   (let ()
