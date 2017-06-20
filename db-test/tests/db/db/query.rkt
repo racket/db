@@ -2,7 +2,6 @@
 (require racket/string
          rackunit
          "../config.rkt"
-         "utilities.rkt"
          db/base)
 (import database^ config^)
 (export test^)
@@ -543,6 +542,14 @@
                         list)
                       (list 1 2 3))))))
 
+;; Exn:fail -> Boolean?
+;;
+;; A utility procedure which receives an exn:fail exception, performs a regex match on
+;; its message and returns true if the exception does not represent
+;; multiple statements given error.
+(define (exn:fail-is-not-multiple-statements-error? exn-fail)
+  (not (regexp-match? #rx"multiple statements given" (exn-message exn-fail))))
+
 (define error-tests
   (test-suite "errors"
     (test-case "query - not a statement"
@@ -567,24 +574,18 @@
         (check-equal? (query-value c (select-val "17"))
                       (if (ANDFLAGS 'odbc 'issl) "17" 17))))
 
-    ;; Added 23 May 2017.
-    ;; In certain cases malformed queries do not cause expected syntax errors to be raised
-    ;; instead they trigger a 'multiple statements given' error which is misleading.
-    ;; Fixed so correct errors are raised.
+    ;; Refer to https://github.com/racket/racket/issues/1702
     (unless (or (ANDFLAGS 'odbc 'ispg) (ORFLAGS 'isdb2))
       (test-case "malformed query do not cause multiple statements in string error"
         (with-connection c
           ; Verify multiple statements given error is not the exn:fail that was raised.
           (check-exn exn:fail-is-not-multiple-statements-error?
-                 (lambda () (query-exec c "Select ,* from nonexistenttable")))
+                     (lambda () (query-exec c "Select ,* from nonexistenttable"))) ; Has an extra comma that doesn't belong there.
           ; Verify exn:fail raised has expected message.
           (check-exn #rx"near \",\": syntax error"
-                 (lambda () (query-exec c "Select ,* from nonexistenttable"))))))
+                     (lambda () (query-exec c "Select ,* from nonexistenttable"))))))
 
-    ;; Added 23 May 2017.
-    ;; 'Create Table' query executed twice against same connection raises 'multiple statements given' error
-    ;; instead of raising the more correct 'table already exists' error.
-    ;; This has been fixed.
+    ;; Refer to https://github.com/racket/racket/issues/1702
     (unless (or (ANDFLAGS 'odbc 'ispg) (ORFLAGS 'isdb2))
       (test-case "DDL query erroneously executed more than once do not cause multiple statements in string error"
         ; Use Create Table for our DDL query example.
@@ -593,15 +594,12 @@
           (query-exec c create-table-stmt) ; First execution, no error raised.
           ; Verify multiple statements given error is not the exn:fail that was raised.
           (check-exn exn:fail-is-not-multiple-statements-error?
-                 (lambda () (query-exec c create-table-stmt))) ; Second execution, raise error due to table already existing.
+                     (lambda () (query-exec c create-table-stmt))) ; Second execution, raise error due to table already existing.
           ; Verify exn:fail raised has expected message.
           (check-exn #rx"table 'test' already exists"
-                 (lambda () (query-exec c create-table-stmt))))))
+                     (lambda () (query-exec c create-table-stmt))))))
 
-    ;; Added May 2017.
-    ;; Any well-formed single statement query which is terminated by a semi-colon and has extra space
-    ;; after the semi-colon raises 'multiple statements given' error.
-    ;; This has been fixed.
+    ;; Refer to https://github.com/racket/racket/issues/1702
     (unless (or (ANDFLAGS 'odbc 'ispg) (ORFLAGS 'isdb2))
       (test-case "A semi-colon terminated single statement query with extra space do not cause multiple statements in string error"
         ; Use a simple select statement for our example but create table first.
