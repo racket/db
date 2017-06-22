@@ -575,7 +575,7 @@
                       (if (ANDFLAGS 'odbc 'issl) "17" 17))))
 
     ;; Refer to https://github.com/racket/racket/issues/1702
-    (unless (or (ANDFLAGS 'odbc 'ispg) (ORFLAGS 'isdb2))
+    (when (FLAG 'sqlite3)
       (test-case "malformed query do not cause multiple statements in string error"
         (with-connection c
           ; Verify multiple statements given error is not the exn:fail that was raised.
@@ -586,7 +586,7 @@
                      (lambda () (query-exec c "Select ,* from nonexistenttable"))))))
 
     ;; Refer to https://github.com/racket/racket/issues/1702
-    (unless (or (ANDFLAGS 'odbc 'ispg) (ORFLAGS 'isdb2))
+    (when (FLAG 'sqlite3)
       (test-case "DDL query erroneously executed more than once do not cause multiple statements in string error"
         ; Use Create Table for our DDL query example.
         (define create-table-stmt "Create Table 'test' ('notes' Text)")
@@ -600,7 +600,7 @@
                      (lambda () (query-exec c create-table-stmt))))))
 
     ;; Refer to https://github.com/racket/racket/issues/1702
-    (unless (or (ANDFLAGS 'odbc 'ispg) (ORFLAGS 'isdb2))
+    (when (FLAG 'sqlite3)
       (test-case "A semi-colon terminated single statement query with extra space do not cause multiple statements in string error"
         ; Use a simple select statement for our example but create table first.
         (define create-table-stmt "Create Table 'test' ('notes' Text);")
