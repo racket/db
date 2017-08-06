@@ -4,7 +4,7 @@
 
 (define collection 'multi)
 (define deps '("srfi-lite-lib"
-               ["base" #:version "6.2.900.17"]
+               ["base" #:version "6.90.0.24"]
                "unix-socket-lib"
                "sasl-lib"))
 
