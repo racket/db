@@ -4,7 +4,8 @@
          db/private/generic/interfaces
          db/private/generic/common
          "connection.rkt")
-(provide cassandra-connect)
+(provide cassandra-connect
+         cassandra-consistency)
 
 (define (cassandra-connect #:server [server "localhost"]
                            #:port [port 9042]

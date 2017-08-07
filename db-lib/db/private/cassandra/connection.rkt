@@ -7,9 +7,10 @@
          db/private/generic/prepared
          "message.rkt"
          "dbsystem.rkt")
-(provide connection%)
+(provide connection%
+         cassandra-consistency)
 
-(define current-consistency (make-parameter 'ONE))
+(define cassandra-consistency (make-parameter 'ONE))
 
 ;; A LWAC is (cons Semaphore Box)
 
@@ -269,10 +270,10 @@
             (match stmt
               [(statement-binding pst params)
                (send-message streamid
-                             (Execute (send pst get-handle) (current-consistency) params))]
+                             (Execute (send pst get-handle) (cassandra-consistency) params))]
               [(? string? stmt)
                (send-message streamid
-                             (Query stmt (current-consistency) #f))])))))
+                             (Query stmt (cassandra-consistency) #f))])))))
 
     ;; query1:collect : Symbol LWAC -> QueryResult
     (define/private (query1:collect who msg)
