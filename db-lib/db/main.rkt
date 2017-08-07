@@ -13,6 +13,8 @@
   (mysql-connect
    mysql-guess-socket-path
    mysql-password-hash)]
+ ["private/cassandra/main.rkt"
+  (cassandra-connect)]
  ["private/sqlite3/place.rkt"
   (sqlite3-connect
    sqlite3-available?)]
@@ -62,6 +64,18 @@
   (-> path-string?)]
  [mysql-password-hash
   (-> string? string?)]
+
+ ;; Duplicates contracts at cassandra.rkt
+ [cassandra-connect
+  (->* []
+       [#:server (or/c string? #f)
+        #:port (or/c exact-positive-integer? #f)
+        #:user (or/c string? #f)
+        #:password (or/c string? #f)
+        #:ssl (or/c 'yes 'no)
+        #:ssl-context (or/c ssl-client-context? 'secure 'auto)
+        #:debug? any/c]
+       connection?)]
 
  ;; Duplicates contracts at sqlite3.rkt
  [sqlite3-connect
