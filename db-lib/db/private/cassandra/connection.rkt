@@ -10,7 +10,7 @@
 (provide connection%
          cassandra-consistency)
 
-(define cassandra-consistency (make-parameter 'ONE))
+(define cassandra-consistency (make-parameter 'one))
 
 ;; A LWAC is (cons Semaphore Box)
 

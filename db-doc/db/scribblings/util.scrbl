@@ -5,7 +5,8 @@
           racket/sandbox
           racket/runtime-path
           "config.rkt"
-          (for-label db db/util/datetime db/util/geometry db/util/postgresql db/util/testing))
+          (for-label db db/util/datetime db/util/geometry db/util/postgresql
+                     db/util/testing db/util/cassandra))
 
 @(define-runtime-path log-file "log-for-util.rktd")
 @(define the-eval (make-pg-eval log-file #t))
@@ -262,15 +263,17 @@ provided by the PostGIS extension library (see @secref["geometry"]).
 
 @section[#:tag "cassandra-util"]{Cassandra-Specific Functionality}
 
+@defmodule[db/util/cassandra]
+
 @defparam[cassandra-consistency consistency
-          (or/c 'ANY 'ONE 'TWO 'THREE 'QUORUM 'ALL 'LOCAL_QUORUM
-                'EACH_QUORUM 'SERIAL 'LOCAL_SERIAL 'LOCAL_ONE)]{
+          (or/c 'any 'one 'two 'three 'quorum 'all 'local-quorum
+                'each-quorum 'serial 'local-serial 'local-one)]{
 
 Controls the @hyperlink["http://cassandra.apache.org/doc/latest/architecture/dynamo.html#tunable-consistency"]{tunable
 consistency level} that Cassandra uses to execute query operations.
 @; Alt url: http://docs.datastax.com/en/cassandra/latest/cassandra/dml/dmlConfigConsistency.html
 
-The default consistency level is @racket['ONE].
+The default consistency level is @racket['one].
 }
 
 @;{========================================}

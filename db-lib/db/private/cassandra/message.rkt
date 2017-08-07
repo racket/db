@@ -156,17 +156,17 @@
   (list addr port))
 
 (define int=>consistency
-  #hash([#x0000 . ANY]
-        [#x0001 . ONE]
-        [#x0002 . TWO]
-        [#x0003 . THREE]
-        [#x0004 . QUORUM]
-        [#x0005 . ALL]
-        [#x0006 . LOCAL_QUORUM]
-        [#x0007 . EACH_QUORUM]
-        [#x0008 . SERIAL]
-        [#x0009 . LOCAL_SERIAL]
-        [#x000A . LOCAL_ONE]))
+  #hash([#x0000 . any]
+        [#x0001 . one]
+        [#x0002 . two]
+        [#x0003 . three]
+        [#x0004 . quorum]
+        [#x0005 . all]
+        [#x0006 . local-quorum]
+        [#x0007 . each-quorum]
+        [#x0008 . serial]
+        [#x0009 . local-serial]
+        [#x000a . local-one]))
 (define consistency=>int (invert-hash int=>consistency))
 (define consistency-symbols (hash-keys consistency=>int))
 
