@@ -13,14 +13,16 @@
          put-dsn
          postgresql-data-source
          mysql-data-source
+         cassandra-data-source
          sqlite3-data-source
          odbc-data-source)
 
 (lazy-require
- [db (postgresql-connect
-      mysql-connect
-      odbc-connect
-      sqlite3-connect)])
+ [db/postgresql (postgresql-connect)]
+ [db/mysql      (mysql-connect)]
+ [db/cassandra  (cassandra-connect)]
+ [db/sqlite3    (sqlite3-connect)]
+ [db/odbc       (odbc-connect)])
 
 #|
 DSN v0.1 format
@@ -64,7 +66,7 @@ considered important.
            (writable-datum? (cdr x)))))
 
 (define (connector? x)
-  (memq x '(postgresql mysql sqlite3 odbc)))
+  (memq x '(postgresql mysql cassandra sqlite3 odbc)))
 
 (define (parse-arglist x [default none])
   (define (fail . args)
@@ -143,6 +145,7 @@ considered important.
   (case x
     ((postgresql) postgresql-connect)
     ((mysql) mysql-connect)
+    ((cassandra) cassandra-connect)
     ((sqlite3) sqlite3-connect)
     ((odbc) odbc-connect)))
 
@@ -192,6 +195,10 @@ considered important.
   (mk-specialized 'mysql-data-source 'mysql 0
                   '(#:user #:database #:password #:server #:port #:socket #:ssl
                     #:notice-handler #:debug?)))
+
+(define cassandra-data-source
+  (mk-specialized 'cassandra-data-source 'cassandra 0
+                  '(#:server #:port #:user #:password #:ssl #:ssl-context #:debug?)))
 
 (define sqlite3-data-source
   (mk-specialized 'sqlite3-data-source 'sqlite3 0

@@ -289,6 +289,16 @@
         #:notice-handler (or/c 'output 'error)
         #:debug? any/c)
        data-source?)]
+ [cassandra-data-source
+  (->* []
+       [#:server string?
+        #:port exact-positive-integer?
+        #:user string?
+        #:password (or/c string? #f)
+        #:ssl (or/c 'yes 'no)
+        #:ssl-context (or/c 'auto 'secure)
+        #:debug? any/c]
+       data-source?)]
  [sqlite3-data-source
   (->* ()
        (#:database (or/c string? 'memory 'temporary)
