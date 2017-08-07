@@ -3,7 +3,7 @@
          db/base
          openssl
          "private/cassandra/main.rkt"
-         (only-in "private/cassandra/message.rkt" consistency-symbols))
+         "util/cassandra.rkt")
 
 ;; FIXME: Contracts duplicated at main.rkt
 (provide/contract
@@ -16,6 +16,5 @@
         #:ssl (or/c 'yes 'no)
         #:ssl-context (or/c ssl-client-context? 'secure 'auto)
         #:debug? any/c]
-       connection?)]
- [cassandra-consistency
-  (parameter/c (apply or/c consistency-symbols))])
+       connection?)])
+(provide cassandra-consistency)
