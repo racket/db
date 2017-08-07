@@ -168,24 +168,35 @@
     ;; == Connect
 
     ;; start-connection-protocol : -> void
-    (define/public (start-connection-protocol)
+    (define/public (start-connection-protocol username password)
       (call-with-lock 'cassandra-connect
         (lambda ()
           (send-message 1 (Startup '(("CQL_VERSION" . "3.0.0"))))
-          (connect:expect-ready))))
+          (connect:expect-ready username password))))
 
     ;; connect:expect-ready : -> Void
-    (define/private (connect:expect-ready)
-      (let ([r (recv-message 'cassandra-connect)])
-        (match r
-          [(Ready)
-           (semaphore-post recv-thread-go)]
-          [(Authenticate _)
-           (error 'cassandra-connect "got Authenticate message: ~e" r)]
-          [(AuthChallenge _)
-           (error 'cassandra-connect "got AuthChallenge message: ~e" r)]
-          [(AuthSuccess _)
-           (error 'cassandra-connect "got AuthSuccess message: ~e" r)])))
+    (define/private (connect:expect-ready username password)
+      (let loop ()
+        (let ([r (recv-message 'cassandra-connect)])
+          (match r
+            [(or (Ready) (AuthSuccess _))
+             (semaphore-post recv-thread-go)]
+            [(Authenticate (and auth "org.apache.cassandra.auth.PasswordAuthenticator"))
+             (unless (and username password)
+               (error 'cassandra-connect "username and password required\n  authenticator: ~s" auth))
+             ;; SASL PLAIN authentication: (<user> NUL <user> NUL <password> NUL)
+             (define sasl-plain-body
+               (bytes-append (string->bytes/utf-8 username)
+                             (bytes 0)
+                             (string->bytes/utf-8 username)
+                             (bytes 0)
+                             (string->bytes/utf-8 password)))
+             (send-message 1 (AuthResponse sasl-plain-body))
+             (loop)]
+            [(Authenticate auth)
+             (error 'cassandra-connect "unknown authenticator\n  authenticator: ~s" auth)]
+            [(AuthChallenge _)
+             (error 'cassandra-connect "got AuthChallenge message: ~e" r)]))))
 
     ;; ========================================
     ;; == Transactions

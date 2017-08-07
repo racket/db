@@ -168,6 +168,7 @@
         [#x0009 . LOCAL_SERIAL]
         [#x000A . LOCAL_ONE]))
 (define consistency=>int (invert-hash int=>consistency))
+(define consistency-symbols (hash-keys consistency=>int))
 
 (define (write-Consistency out c)
   (write-Short out (hash-ref consistency=>int c)))
