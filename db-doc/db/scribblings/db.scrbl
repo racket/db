@@ -29,6 +29,10 @@ native client library is required.}
 3.} The SQLite native client library is required; see
 @secref["sqlite3-requirements"].}
 
+@item{@bold{@as-index{@hyperlink["http://cassandra.apache.org"]{Cassandra}}
+versions 2.1.0 and later.} This library implements the Cassandra wire
+protocol (v3), so no native client is required.}
+
 @item{@bold{@as-index{ODBC}.} An ODBC Driver Manager and appropriate
 ODBC drivers are required; see @secref["odbc-requirements"]. The
 following database systems are known to work with this library via

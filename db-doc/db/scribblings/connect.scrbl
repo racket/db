@@ -6,6 +6,7 @@
           racket/runtime-path
           "config.rkt"
           (for-label db
+                     db/util/cassandra
                      openssl))
 
 
@@ -21,10 +22,10 @@ administrative functions for managing connections.
 
 @declare-exporting[db]
 
-There are four kinds of base connection, and they are divided into two
+There are five kinds of base connection, and they are divided into two
 groups: @deftech{wire-based connections} and @deftech{FFI-based
-connections}. PostgreSQL and MySQL connections are wire-based, and
-SQLite and ODBC connections are FFI-based. See also
+connections}. PostgreSQL, MySQL, and Cassandra connections are
+wire-based, and SQLite and ODBC connections are FFI-based. See also
 @secref["ffi-concurrency"].
 
 Base connections are made using the following functions.
@@ -197,6 +198,35 @@ Base connections are made using the following functions.
   nor that the path is connected to a MySQL server.
 
   If none of the attempted paths exist, an exception is raised.
+}
+
+@defproc[(cassandra-connect
+                  [#:user user (or string? #f) #f]
+                  [#:password password (or string? #f) #f]
+                  [#:server server string? "localhost"]
+                  [#:port port exact-positive-integer? 9042]
+                  [#:ssl ssl (or/c 'yes 'no) 'no]
+                  [#:ssl-context ssl-context (or/c ssl-client-context? 'auto 'secure) 'auto])
+         connection?]{
+
+  Creates a connection to a Cassandra server.
+
+  The meaning of the keyword arguments is similar to those of
+  the @racket[postgresql-connect] function.
+
+  If the connection cannot be made, an exception is raised.
+
+  @fake-examples[
+    [(cassandra-connect)
+     (new connection%)]
+    [(cassandra-connect #:user "me"
+                        #:password "icecream")
+     (new connection%)]
+    [(cassandra-connect #:server "db.mysite.com"
+                        #:port 9042
+                        #:user "webapp"
+                        #:password "ultra5ecret")
+     (new connection%)]]
 }
 
 @defproc[(sqlite3-connect
@@ -634,6 +664,14 @@ ODBC's DSNs.
            [#:password password (or/c string? #f) @#,absent]
            [#:notice-handler notice-handler (or/c 'output 'error) @#,absent])
          data-source?]
+@defproc[(cassandra-data-source
+           [#:server server string? @#,absent]
+           [#:port port exact-positive-integer? @#,absent]
+           [#:user user string? @#,absent]
+           [#:password password (or/c string? #f) @#,absent]
+           [#:ssl ssl (or/c 'yes 'no) @#,absent]
+           [#:ssl-context ssl-context (or/c 'auto 'secure) @#,absent])
+         data-source?]
 @defproc[(sqlite3-data-source
            [#:database database (or/c path-string? 'memory 'temporary) @#,absent]
            [#:mode mode (or/c 'read-only 'read/write 'create) @#,absent]
@@ -745,6 +783,11 @@ Provides only @racket[postgresql-connect] and
 
 Provides only @racket[mysql-connect] and
 @racket[mysql-guess-socket-path].
+
+@defmodule*/no-declare[(db/cassandra)]
+
+Provides only @racket[cassandra-connect] and
+@racket[cassandra-consistency].
 
 @defmodule*/no-declare[(db/sqlite3)]
 

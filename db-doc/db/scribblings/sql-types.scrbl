@@ -6,7 +6,7 @@
           racket/runtime-path
           "config.rkt"
           "tabbing.rkt"
-          (for-label db db/util/geometry db/util/postgresql
+          (for-label db db/util/geometry db/util/postgresql racket/set
                      json))
 
 @(define-runtime-path log-file "log-for-sql-types.rktd")
@@ -231,6 +231,39 @@ converted to @racket[sql-time] values; the rest are represented by
 
 The MySQL @tt{enum} and @tt{set} types are not supported. As a
 workaround, cast them to/from either integers or strings.
+
+
+@subsection[#:tag "cassandra-types"]{Cassandra Types}
+
+This section applies to connections created with
+@racket[cassandra-connect].
+
+The following table lists the Cassandra types known to this library,
+along with their corresponding Racket representations.
+
+@centered{
+@tabbing[#:spacing 8]{
+  @bold{Cassandra type}   @& @bold{Racket type} @//
+  @racket['ascii]         @& @racket[string?] @//
+  @racket['bigint]        @& @racket[exact-integer?] @//
+  @racket['int]           @& @racket[exact-integer?] @//
+  @racket['blob]          @& @racket[bytes?] @//
+  @racket['boolean]       @& @racket[boolean?] @//
+  @racket['decimal]       @& @racket[exact-integer?] @//
+  @racket['double]        @& @racket[real?] @//
+  @racket['float]         @& @racket[real?] @//
+@;@racket['inet]          @& @racket[???] @//
+  @racket['text]          @& @racket[string?] @//
+  @racket['varchar]       @& @racket[string?] @//
+  @racket['timestamp]     @& @racket[sql-timestamp?] @//
+  @racket['uuid]          @& @racket[uuid?] @//
+  @racket['timeuuid]      @& @racket[uuid?] @//
+  @racket['varint]        @& @racket[exact-integer?] @//
+  @racket[`(list ,_t)]      @& @racket[(listof _t)] @//
+  @racket[`(set ,_t)]       @& @racket[(set/c _t)] @//
+  @racket[`(map ,_k ,_v)]   @& @racket[(alistof _k _v)] @//
+  @racket[`(tuple ,_t ...)] @& @racket[(vector/c _t ...)]
+}}
 
 
 @subsection[#:tag "sqlite-types"]{SQLite Types}

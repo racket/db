@@ -260,6 +260,21 @@ provided by the PostGIS extension library (see @secref["geometry"]).
 
 @;{========================================}
 
+@section[#:tag "cassandra-util"]{Cassandra-Specific Functionality}
+
+@defparam[cassandra-consistency consistency
+          (or/c 'ANY 'ONE 'TWO 'THREE 'QUORUM 'ALL 'LOCAL_QUORUM
+                'EACH_QUORUM 'SERIAL 'LOCAL_SERIAL 'LOCAL_ONE)]{
+
+Controls the @hyperlink["http://cassandra.apache.org/doc/latest/architecture/dynamo.html#tunable-consistency"]{tunable
+consistency level} that Cassandra uses to execute query operations.
+@; Alt url: http://docs.datastax.com/en/cassandra/latest/cassandra/dml/dmlConfigConsistency.html
+
+The default consistency level is @racket['ONE].
+}
+
+@;{========================================}
+
 @section[#:tag "util-testing"]{Testing Database Programs}
 
 @defmodule[db/util/testing]

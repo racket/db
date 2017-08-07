@@ -118,6 +118,14 @@ MySQL @tt{CALL} statements can be executed only if they return at most
 one result set and contain no @tt{OUT} or @tt{INOUT} parameters.
 
 
+@section{Cassandra Authentication}
+
+Cassandra, like MySQL, supports
+@hyperlink["http://cassandra.apache.org/doc/latest/operating/security.html#authentication"]{authentication
+plugins}. The only plugins currently supported by this library are
+@tt{AllowAllAuthenticator} and @tt{PasswordAuthenticator}.
+
+
 @section[#:tag "sqlite3-requirements"]{SQLite Requirements}
 
 SQLite support requires the appropriate native library.
