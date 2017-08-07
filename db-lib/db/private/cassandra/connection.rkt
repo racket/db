@@ -286,13 +286,15 @@
                (send-message streamid
                              (Query stmt (cassandra-consistency) #f))])))))
 
-    ;; query1:collect : Symbol LWAC -> QueryResult
+    ;; query1:collect : Symbol ResponseMessage -> QueryResult
     (define/private (query1:collect who msg)
       (match msg
         [(Result:Void _)
          (simple-result #f)]
         [(Result:Rows _ _pagestate dvecs rows)
-         (rows-result (map dvec->field-info dvecs) rows)]))
+         (rows-result (map dvec->field-info dvecs) rows)]
+        [(Error code message)
+         (raise-backend-error who msg)]))
 
     ;; check-statement : Symbol Statement -> Statement
     (define/private (check-statement who stmt cursor?)
