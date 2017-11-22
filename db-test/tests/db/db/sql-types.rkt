@@ -327,8 +327,9 @@
       (check-roundtrip "abcde")
       (check-roundtrip (make-string #e1e6 #\a))
       (check-roundtrip (make-string #e1e7 #\b))
-      (when (FLAG 'mysql) (temp-table-avail? #f))
-      (check-roundtrip (make-string #e1e8 #\c)))
+      (when #f
+        (when (FLAG 'mysql) (temp-table-avail? #f))
+        (check-roundtrip (make-string #e1e8 #\c))))
 
     (type-test-case '(tinyint)
       (setup-temp-table)
