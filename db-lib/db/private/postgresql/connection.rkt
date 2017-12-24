@@ -3,6 +3,8 @@
          racket/match
          file/md5
          openssl
+         sasl
+         sasl/scram
          db/private/generic/interfaces
          db/private/generic/common
          db/private/generic/sql-data
@@ -255,8 +257,34 @@
            (error/no-support 'postgresql-connect "KerberosV5 authentication")]
           [(struct AuthenticationSCMCredential ())
            (error/no-support 'postgresql-connect "SCM authentication")]
+          [(AuthenticationSASL methods)
+           (cond [(member "SCRAM-SHA-256" methods)
+                  (unless password (error/need-password 'postgresql-connect))
+                  (define scram (make-scram-client-ctx 'sha256 username password))
+                  (send-message (make-SASLInitialResponse
+                                 "SCRAM-SHA-256" (sasl-next-message scram)))
+                  (connect:auth/scram scram)
+                  (connect:expect-auth username password)]
+                 [else
+                  (error/no-support 'postgresql-connect
+                                    (format "SASL authentication ~a" methods))])]
           ;; ErrorResponse handled by recv-message
           [_ (error/comm 'postgresql-connect "during authentication")])))
+
+    (define/private (connect:auth/scram scram)
+      (match (recv-message 'postgresql-connect)
+        [(AuthenticationSASLContinue content)
+         (sasl-receive-message scram content)
+         (send-message (make-SASLResponse (sasl-next-message scram)))
+         (connect:auth/scram2 scram)]
+        [_ (error/comm 'postgresql-connect "during SCRAM-SHA-256 authentication")]))
+    (define/private (connect:auth/scram2 scram)
+      (match (recv-message 'postgresql-connect)
+        [(AuthenticationSASLFinal content)
+         (sasl-receive-message scram content)
+         (unless (eq? (sasl-state scram) 'done)
+           (error/internal 'postgresql-connect "SCRAM-SHA-256 unexpected state"))]
+        [_ (error/comm 'postgresql-connect "during SCRAM-SHA-256 authentication")]))
 
     ;; connect:expect-ready-for-query : -> void
     (define/private (connect:expect-ready-for-query)

@@ -1,5 +1,7 @@
 #lang racket/base
 (require (for-syntax racket/base)
+         racket/string
+         racket/port
          racket/match
          db/private/generic/interfaces
          db/private/generic/sql-data)
@@ -12,6 +14,9 @@
          (struct-out AuthenticationCryptPassword)
          (struct-out AuthenticationMD5Password)
          (struct-out AuthenticationSCMCredential)
+         (struct-out AuthenticationSASL)
+         (struct-out AuthenticationSASLContinue)
+         (struct-out AuthenticationSASLFinal)
          (struct-out StartupMessage)
          (struct-out SSLRequest)
          (struct-out CancelRequest)
@@ -41,6 +46,8 @@
          (struct-out Query)
          (struct-out ReadyForQuery)
          (struct-out RowDescription)
+         (struct-out SASLInitialResponse)
+         (struct-out SASLResponse)
          (struct-out Sync)
          (struct-out Terminate)
          bytes->row
@@ -149,6 +156,9 @@
 (define-struct AuthenticationCryptPassword (salt) #:transparent)
 (define-struct AuthenticationMD5Password (salt) #:transparent)
 (define-struct AuthenticationSCMCredential () #:transparent)
+(define-struct AuthenticationSASL (methods) #:transparent)
+(define-struct AuthenticationSASLContinue (content) #:transparent)
+(define-struct AuthenticationSASLFinal (content) #:transparent)
 (define (parse:Authentication p)
   (with-length-in p #\R
     (let* ([tag (io:read-int32 p)])
@@ -161,6 +171,15 @@
         ((5) (let ([salt (io:read-bytes-as-bytes p 4)])
                (make-AuthenticationMD5Password salt)))
         ((6) (make-AuthenticationSCMCredential))
+        ((10) (let ([methods (io:read-null-terminated-string p)])
+                (make-AuthenticationSASL
+                 ;; As of PostrgreSQL v10.1 only one method supported, and I
+                 ;; can't find docs for how multiple methods might be formatted
+                 ;; in future.  But I don't want old clients to break when new
+                 ;; method added.  So split on any char illegal in method name.
+                 (string-split methods #rx"[^-_A-Z0-9]+"))))
+        ((11) (make-AuthenticationSASLContinue (port->string p)))
+        ((12) (make-AuthenticationSASLFinal (port->string p)))
         (else
          (error/internal* 'authentication "back end requested unknown authentication method"
                           "method code" tag))))))
@@ -417,6 +436,28 @@
                 (vector name table-oid column-attid type-oid type-size type-mod format-code)))])
       (make-RowDescription fields))))
 
+(define-struct SASLInitialResponse (method content) #:transparent)
+(define (write:SASLInitialResponse p v)
+  (match v
+    [(SASLInitialResponse method content)
+     (with-length-out p #\p
+       (io:write-null-terminated-string p method)
+       (cond [(bytes? content)
+              (io:write-int32 p (bytes-length content))
+              (io:write-bytes p content)]
+             [(string? content)
+              (io:write-int32 p (string-utf-8-length content))
+              (write-string content p)]
+             [else (io:write-int32 p -1)]))]))
+
+(define-struct SASLResponse (content) #:transparent)
+(define (write:SASLResponse p v)
+  (match v
+    [(SASLResponse content)
+     (with-length-out p #\p
+       (cond [(bytes? content) (write-bytes content p)]
+             [(string? content) (write-string content p)]))]))
+
 (define-struct Sync () #:transparent)
 (define (write:Sync p v)
   (with-length-out p #\S))
@@ -453,7 +494,9 @@
             StartupMessage
             PasswordMessage
             SSLRequest
-            CancelRequest))
+            CancelRequest
+            SASLInitialResponse
+            SASLResponse))
 
 (define (parse-server-message p)
   (let ([c (read-char p)])
