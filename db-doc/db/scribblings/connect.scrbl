@@ -72,9 +72,9 @@ Base connections are made using the following functions.
   is raised. If the server does not request password authentication,
   the @racket[password] argument is ignored and may be omitted.  A
   connection normally only sends password hashes (using the @tt{md5}
-  authentication method). If the server requests a password sent as
-  cleartext (un-hashed), the connection is aborted unless
-  @racket[allow-cleartext-password?] is true.
+  or @tt{scram-sha-256} authentication methods). If the server
+  requests a password sent as cleartext (un-hashed), the connection is
+  aborted unless @racket[allow-cleartext-password?] is true.
 
   If the @racket[ssl] argument is either @racket['yes] or
   @racket['optional], the connection attempts to negotiate an SSL

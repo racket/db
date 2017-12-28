@@ -1,6 +1,6 @@
 #lang info
 
-(define version "1.1")
+(define version "1.2")
 
 (define collection 'multi)
 
@@ -13,7 +13,7 @@
                      "scribble-lib"
                      "sandbox-lib"
                      "web-server-lib"
-                     "db-lib"
+                     ["db-lib" "1.2"]
                      "racket-doc"))
 (define update-implies '("db-lib"))
 

@@ -54,17 +54,20 @@ encoding, and @tt{pg_restore} from the recoded dump file.
 @section{PostgreSQL Authentication}
 
 PostgreSQL supports a large variety of
-@hyperlink["http://www.postgresql.org/docs/8.4/static/auth-pg-hba-conf.html"]{authentication
+@hyperlink["http://www.postgresql.org/docs/current/static/auth-pg-hba-conf.html"]{authentication
 mechanisms}, controlled by the @tt{pg_hba.conf} server configuration
-file. This library currently supports only cleartext and md5-hashed
-passwords, and it does not send cleartext passwords unless explicitly
-ordered to (see @racket[postgresql-connect]). These correspond to the
-@tt{md5} and @tt{password} authentication methods in the parlance of
-@tt{pg_hba.conf}, respectively. On Linux and Mac OS, @tt{ident}
-authentication is automatically supported for local sockets (as of
-PostgreSQL 9.1, this authentication method has been renamed
-@tt{peer}). The @tt{gss}, @tt{sspi}, @tt{krb5}, @tt{pam}, and
-@tt{ldap} methods are not supported.
+file. This library currently works with the following authentication methods:
+@itemlist[
+@item{@tt{plain} (and @tt{ldap}, @tt{pam}, @tt{radius}): cleartext password, only if
+explicitly allowed (see @racket[postgresql-connect])}
+@item{@tt{md5}: MD5-hashed password}
+@item{@tt{scram-sha-256}: password-based challenge/response protocol}
+@item{@tt{peer}: only for local sockets}
+]
+The @tt{gss}, @tt{sspi}, @tt{krb5}, @tt{pam}, and @tt{ldap} methods
+are not supported.
+
+@history[#:changed "1.2" @elem{Added @tt{scram-sha-256} support.}]
 
 @section[#:tag "postgresql-timestamp-tz"]{PostgreSQL Timestamps and Time Zones}
 
