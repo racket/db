@@ -114,7 +114,7 @@
                  ;; If c does not execute asynchronously, expect counter to be about 0.
                  (check-pred positive? counter)
                  (let ([expected-counter (/ (- end start) (* 0.01 1000))])
-                   (check > counter (* 0.5 expected-counter))))))))))))
+                   (check > counter (* 0.2 expected-counter))))))))))))
 
 ;; ----
 
