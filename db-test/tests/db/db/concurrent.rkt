@@ -88,33 +88,16 @@
            (query-exec c (format "create temporary table ~a (n integer)" table))
            (for ([i (in-range 40)])
              (query-exec c (sql (format "insert into ~a (n) values ($1)" table)) i)))
-         (let* ([the-sql
-                 (string-append "select max(a.n * b.n *c.n * d.n) "
-                                "from numsa a, numsb b, numsc c, numsd d")]
-                [pst (prepare c the-sql)]
-                [sema (make-semaphore 0)]
-                [peek (semaphore-peek-evt sema)]
-                [counter 0]
-                [thd
-                 (thread (lambda ()
-                           (let loop ()
-                             (sync peek)
-                             (set! counter (add1 counter))
-                             (sleep 0.01)
-                             (loop))))])
-           (let ([start (current-inexact-milliseconds)])
-             (semaphore-post sema)
-             (query-value c pst)
-             (semaphore-wait sema)
-             (let ([end (current-inexact-milliseconds)])
-               (when (ORFLAGS 'postgresql 'mysql 'async)
-                 (when #f
-                   (printf "counter = ~s\n" counter)
-                   (printf "time elapsed = ~s\n" (- end start)))
-                 ;; If c does not execute asynchronously, expect counter to be about 0.
-                 (check-pred positive? counter)
-                 (let ([expected-counter (/ (- end start) (* 0.01 1000))])
-                   (check > counter (* 0.2 expected-counter))))))))))))
+         (define the-sql
+           (string-append "select max(a.n * b.n *c.n * d.n) "
+                          "from numsa a, numsb b, numsc c, numsd d"))
+         (define pst (prepare c the-sql))
+         (define thd-ran? #f)
+         (define thd (thread (lambda () (sync (system-idle-evt)) (set! thd-ran? #t))))
+         (query-value c pst)
+         (kill-thread thd)
+         (when (ORFLAGS 'postgresql 'mysql 'async)
+           (check-true thd-ran?)))))))
 
 ;; ----
 
