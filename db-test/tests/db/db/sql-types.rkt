@@ -118,17 +118,21 @@
     [else #f]))
 
 (define (roundtrip-stmt/db2)
-  (define (wrap e) (format "select ~a" e))
+  (define (wrap e) (format "values ( ~a )" e))
   (case (current-type)
     [(varchar)  (wrap "cast(? as varchar(200) ccsid unicode)")]
-    [(blob)     (wrap "cast(? as binary)")] ;; ??
+    [(blob)     (wrap "cast(? as binary)")]
+    [(tinyint)  (wrap "cast(? as smallint)")]
+    [(smallint) (wrap "cast(? as smallint)")]
     [(integer)  (wrap "cast(? as integer)")]
-    ;; FIXME: real
-    [(numeric)  (wrap "cast(? as decimal)")]
+    [(bigint)   (wrap "cast(? as bigint)")]
+    [(real)     (wrap "cast(? as real)")]
+    [(double)   (wrap "cast(? as double)")]
+    [(numeric)  (wrap "cast(? as decimal(30,10))")]
     [(date)     (wrap "cast(? as date)")]
     [(time)     (wrap "cast(? as time)")]
     [(datetime) (wrap "cast(? as datetime)")]
-    ;; FIXME: more types
+    [(timestamp) (wrap "cast(? as timestamp)")]
     [else #f]))
 
 (define (type->sql type)
