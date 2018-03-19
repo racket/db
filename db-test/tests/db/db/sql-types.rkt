@@ -23,7 +23,7 @@
 
 (define (type-test-case* types proc)
   (let* ([known-types
-          (if (ORFLAGS 'sqlite3)
+          (if (FLAG 'sqlite3)
               '(bigint double text blob)
               (send dbsystem get-known-types +inf.0))]
          [type (for/or ([type types])
@@ -53,11 +53,11 @@
     (check-table-rt* value check-equal?)))
 
 (define (roundtrip-statement)
-  (cond [(ORFLAGS 'postgresql 'ispg)
+  (cond [(FLAG 'ispg)
          (format "select $1::~a" (type->sql (current-type)))]
-        [(ORFLAGS 'mysql 'ismy)
+        [(FLAG 'ismy)
          (roundtrip-stmt/mysql)]
-        [(eq? dbsys 'sqlite3) ;; no ODBC-sqlite3, too painful
+        [(FLAG 'sqlite3) ;; no ODBC-sqlite3, too painful
          "select ?"]
         [(FLAG 'isora)
          (roundtrip-stmt/oracle)]
@@ -109,7 +109,7 @@
     [else #f]))
 
 (define (type->sql type)
-  (cond [(ORFLAGS 'postgresql 'ispg)
+  (cond [(FLAG 'ispg)
          (cond [(eq? type 'double) 'float8]
                [(eq? type 'char1)  '|"char"|]
                [(regexp-match #rx"^(.*)-array$" (format "~a" type))
@@ -120,7 +120,7 @@
 ;; ----------------------------------------
 
 (define (setup-temp-table [type (type->sql (current-type))])
-  (define (temp-table-ok?) (ORFLAGS 'postgresql 'mysql))
+  (define (temp-table-ok?) (FLAG 'can-temp-table))
   (when (and type (temp-table-ok?))
     (query-exec (dbc) (format "create temporary table testing_temp_table (v ~a)" type))
     (temp-table-avail? #t))
@@ -137,7 +137,7 @@
   (check-value/text* val text check-equal? check-equal?))
 
 (define (check-value/text* val text check-val-equal? check-text-equal?)
-  (cond [(ORFLAGS 'postgresql)
+  (cond [(FLAG 'postgresql)
          (let* ([tname (type->sql (current-type))]
                 [q-text->val (sql (format "select ($1::text)::~a" tname))]
                 [q-val->text (sql (format "select ($1::~a)::text" tname))])
@@ -156,8 +156,8 @@
   (let ([len-fun (case dbsys
                    ((postgresql sqlite3) "length")
                    ((mysql) "char_length")
-                   ((odbc) (cond [(ANDFLAGS 'ispg) "length"]
-                                 [(ANDFLAGS 'ismy) "char_length"])))])
+                   ((odbc) (cond [(ORFLAGS 'ispg) "length"]
+                                 [(ORFLAGS 'ismy) "char_length"])))])
     (when (string? len-fun)
       (check-equal? (query-value (dbc) (sql (format "select ~a($1)" len-fun)) str)
                     (string-length str)
@@ -170,7 +170,7 @@
     (let ([ci-fun (case dbsys
                     ((postgresql) "ascii") ;; yes, returns unicode code point too (if utf8)
                     ((mysql sqlite3) #f) ;; ???
-                    ((odbc) (cond [(ANDFLAGS 'ispg) "ascii"])))])
+                    ((odbc) (cond [(ORFLAGS 'ispg) "ascii"])))])
       (when (string? ci-fun)
         (check-equal? (query-value (dbc) (sql (format "select ~a($1)" ci-fun)) str)
                       (char->integer (string-ref str 0))
@@ -180,12 +180,12 @@
                     ((postgresql) "select chr(~a)")
                     ((mysql) "select char(~a using utf8)")
                     ((sqlite3) #f)
-                    ((odbc) (cond [(ANDFLAGS 'ispg) "select chr(~a)"]
-                                  [(ANDFLAGS 'ismy) "select char(~a using utf8)"])))])
+                    ((odbc) (cond [(ORFLAGS 'ispg) "select chr(~a)"]
+                                  [(ORFLAGS 'ismy) "select char(~a using utf8)"])))])
       (when (string? ic-fmt)
         (check-equal? (query-value (dbc)
                         (format ic-fmt
-                                (if (ORFLAGS 'mysql 'ismy)
+                                (if (FLAG 'ismy)
                                     (string-join
                                      (map number->string
                                           (bytes->list (string->bytes/utf-8 str)))
@@ -456,7 +456,7 @@
 
     (type-test-case '(time)
       (setup-temp-table) ;; MySQL (<5.7) does not *store* fractional seconds
-      (define frac-seconds-ok? (ORFLAGS 'postgresql))
+      (define frac-seconds-ok? (FLAG 'postgresql))
       (for ([t+s some-times])
         (when (or frac-seconds-ok? (zero? (sql-time-nanosecond (car t+s))))
           (check-roundtrip (car t+s))
@@ -470,12 +470,12 @@
 
     (type-test-case '(timestamp datetime)
       (setup-temp-table)
-      (define frac-seconds-ok? (ORFLAGS 'postgresql))
+      (define frac-seconds-ok? (FLAG 'postgresql))
       (for ([t+s some-timestamps])
         (when (or frac-seconds-ok? (zero? (sql-timestamp-nanosecond (car t+s))))
           (check-roundtrip (car t+s))
           (check-value/text (car t+s) (cadr t+s))))
-      (when (ORFLAGS 'postgresql) ;; Only postgresql supports +/-inf.0
+      (when (FLAG 'postgresql) ;; Only postgresql supports +/-inf.0
         (for ([t+s some-pg-timestamps])
           (check-roundtrip (car t+s))
           (check-value/text (car t+s) (cadr t+s)))))

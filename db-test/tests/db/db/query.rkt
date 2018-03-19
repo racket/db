@@ -33,7 +33,7 @@
 
   (test-suite (format "simple (~a)" prep-mode)
 
-    (unless (ORFLAGS 'isora 'isdb2) ;; table isn't temp, so don't tamper with it
+    (unless (FLAG 'const-table)
       (test-case "query-exec"
         (with-connection c
           (check-pred void? (Q c query-exec "insert into the_numbers values(-1, 'mysterious')"))
@@ -54,7 +54,7 @@
         (check set-equal?
                (Q c query-rows "select N, descr from the_numbers where N < $1" 2)
                '(#(0 "nothing") #(1 "unity")))
-        (unless (ORFLAGS 'isora 'isdb2)
+        (unless (FLAG 'const-table)
           (check-exn-fail
            (Q c query-rows "insert into the_numbers values (13, 'baker')")))))
 
@@ -119,7 +119,7 @@
                            (Q c in-query "select N, descr from the_numbers where N < $1" 2)])
                  (vector n d))
                '(#(0 "nothing") #(1 "unity")))
-        (unless (ORFLAGS 'isora 'isdb2)
+        (unless (FLAG 'const-table)
           (check-exn-fail
            (for ([x (Q c in-query "insert into the_numbers values ($1, 'baker')" 13)])
              (void))))
@@ -191,7 +191,7 @@
           (check set-equal?
                  (map vector (map car test-data))
                  (rows-result-rows q)))))
-    (unless (ORFLAGS 'isora 'isdb2)
+    (unless (FLAG 'const-table)
       (test-case "query - update"
         (with-connection c
           (let [(q (query c "update the_numbers set N = -1 where N = 1"))]
@@ -555,7 +555,7 @@
     (test-case "query - not a statement"
       (with-connection c
         (check-exn exn:fail? (lambda () (query c 5)))))
-    (unless (or (ANDFLAGS 'odbc 'ispg) (ORFLAGS 'isdb2))
+    (unless (and (FLAG 'odbc) (ORFLAGS 'ispg 'isdb2 'ismss))
       (test-case "query - multiple statements in string"
         (with-connection c
           (check-exn exn:fail?

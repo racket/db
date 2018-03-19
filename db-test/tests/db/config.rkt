@@ -53,9 +53,7 @@
 
   (define (connect-and-setup)
     (let [(cx (connect-for-test))]
-
-      ;; For now, we just assume Oracle, DB2 dbs are already set up.
-      (unless (ORFLAGS 'isora 'isdb2)
+      (when (FLAG 'can-temp-table)
         (query-exec cx
           "create temporary table the_numbers (N integer primary key, descr varchar(80))")
         (for-each (lambda (p)
@@ -98,8 +96,39 @@
         (disconnect c)
         dbsystem)))
 
+  ;; ----------------------------------------
+  ;; Flags
+
+  ;; Standard flags:
+  ;;   connection = 'postgresql | 'mysql | 'sqlite3 | 'odbc
+  ;;   impl type  = 'wire | 'ffi
+  ;;   dialect    = 'ispg | 'ismy | 'issl
+  ;;              | 'isdb2 | 'isora (oracle) | 'ismss (MS SQL Server)
+
+  ;; Other flags (set in data-source extensions under db:test key):
+  ;;   'async = ODBC connection allows async execution (ie, via places)
+  ;;   'pg92  = PostgreSQL >= 9.2
+  ;;   'concurrent = ok to test many concurrent connections
+
   (define allflags (cons dbsys dbflags))
+  (define (add-flag! . fs) (set! allflags (append fs allflags)))
 
   (define (FLAG x) (and (member x allflags) #t))
   (define (ORFLAGS . xs) (ormap FLAG xs))
-  (define (ANDFLAGS . xs) (andmap FLAG xs)))
+  (define (ANDFLAGS . xs) (andmap FLAG xs))
+
+  ;; -- Derived flags --
+
+  (case dbsys
+    [(postgresql) (add-flag! 'ispg 'wire 'concurrent 'async)]
+    [(mysql)      (add-flag! 'ismy 'wire 'concurrent 'async)]
+    [(sqlite3)    (add-flag! 'issl 'ffi  'concurrent)]
+    [(odbc)       (add-flag! 'ffi)])
+
+  ;; 'can-temp-table = can use "CREATE TEMP TABLE"; make temp "the_numbers" on connect
+  ;; 'const-table = table "the_numbers" is pre-populated; don't modify!
+  (if (ORFLAGS 'ispg 'ismy 'issl)
+      (add-flag! 'can-temp-table)
+      (add-flag! 'const-table))
+
+  )

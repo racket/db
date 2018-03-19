@@ -9,7 +9,7 @@
 (define (test-concurrency workers [threads? #t] [concurrent? #t])
   ;; if threads?, use threads, else use thunks
   ;; if serialize?, run threads one at a time, else run all at once
-  (unless (ORFLAGS 'isora 'isdb2)
+  (when (FLAG 'concurrent)
     (test-case (format "lots of ~a (~s)"
                        (cond [(and threads? concurrent?)
                               "concurrent threads"]
@@ -54,7 +54,7 @@
             (query-value c "select max(n) from play_numbers"))))
 
 (define (kill-safe-test proxy?)
-  (unless (ORFLAGS 'isora 'isdb2)
+  (when (FLAG 'concurrent)
     (test-case
      (format "kill-safe test~a" (if proxy? " (proxy)" ""))
      (call-with-connection
@@ -78,7 +78,7 @@
             (sync t))))))))
 
 (define (async-test)
-  (unless (ORFLAGS 'isora 'isdb2)
+  (when (FLAG 'concurrent)
     (test-case "asynchronous execution"
       (call-with-connection
        (lambda (c)
@@ -96,7 +96,7 @@
          (define thd (thread (lambda () (sync (system-idle-evt)) (set! thd-ran? #t))))
          (query-value c pst)
          (kill-thread thd)
-         (when (ORFLAGS 'postgresql 'mysql 'async)
+         (when (FLAG 'async)
            (check-true thd-ran?)))))))
 
 ;; ----
