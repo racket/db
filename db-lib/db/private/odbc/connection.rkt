@@ -734,7 +734,8 @@
                   (SQLGetDiagRec handle-type handle 1)])
       (case mode
         ((error)
-         (raise-sql-error who sqlstate message
+         (raise-sql-error who sqlstate
+                          (or message "<an ODBC function failed with no diagnostic message>")
                           `((code . ,sqlstate)
                             (message . ,message)
                             (native-errcode . ,native-errcode))))
