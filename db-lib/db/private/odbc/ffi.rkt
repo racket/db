@@ -360,13 +360,13 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
         -> (and (ok-status? status) valptr))
   #:c-id SQLGetStmtAttr)
 
-(define-odbc SQLSetDescField/Int
+(define-odbc SQLSetDescField/SmallInt
   (_fun (handle recno fieldid intval) ::
         (handle  : _sqlhdesc)
         (recno   : _sqlsmallint)
         (fieldid : _sqlsmallint)
         (intval  : _intptr)  ;; declared SQLPOINTER; cast
-        (buflen : _sqlinteger = 0)
+        (buflen : _sqlinteger = SQL_IS_SMALLINT)
         -> (status : _sqlreturn))
   #:c-id SQLSetDescField)
 

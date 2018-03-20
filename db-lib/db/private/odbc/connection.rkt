@@ -275,9 +275,9 @@
               [else (void)])))
 
     (define/private (set-numeric-descriptors hdesc i prec ex buf)
-      (A (SQLSetDescField/Int hdesc i SQL_DESC_TYPE SQL_C_NUMERIC)
-         (SQLSetDescField/Int hdesc i SQL_DESC_PRECISION prec)
-         (SQLSetDescField/Int hdesc i SQL_DESC_SCALE ex)
+      (A (SQLSetDescField/SmallInt hdesc i SQL_DESC_TYPE SQL_C_NUMERIC)
+         (SQLSetDescField/SmallInt hdesc i SQL_DESC_PRECISION prec)
+         (SQLSetDescField/SmallInt hdesc i SQL_DESC_SCALE ex)
          (when buf (SQLSetDescField/Ptr hdesc i SQL_DESC_DATA_PTR buf (bytes-length buf)))))
 
     (define/private (fetch* fsym stmt result-typeids end-box limit)
