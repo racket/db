@@ -85,14 +85,17 @@
 (define (roundtrip-stmt/oracle)
   (define (wrap e) (format "select ~a from dual" e))
   (case (current-type)
-    [(varchar)  (wrap "cast(? as varchar2(200))")]
-    [(blob)     (wrap "cast(? as binary)")] ;; ??
-    [(integer)  (wrap "cast(? as integer)")]
-    ;; FIXME: real
-    [(numeric)  (wrap "cast(? as decimal(20,10))")]
-    ;; FIXME: date
-    ;; FIXME: time (bug?)
+    [(varchar)  (wrap "cast(? as nvarchar2(200))")]
+    [(blob)     (wrap "cast(? as binary)")]
+    [(integer tinyint smallint bigint)
+     (wrap "cast(? as integer)")]
+    [(real double) (wrap "cast(? as real)")]
+    [(numeric decimal)
+     (wrap "cast(? as decimal(30,15))")]
+    [(date) (wrap "cast(? as date)")]
+    ;; [(time) (wrap "cast(? as time)")] ;; Driver BUG
     [(datetime) (wrap "cast(? as datetime)")]
+    [(timestamp) (wrap "cast(? as timestamp)")]
     ;; FIXME: more types
     [else #f]))
 
