@@ -1,5 +1,6 @@
 #lang racket/unit
 (require racket/string
+         racket/vector
          rackunit
          "../config.rkt"
          db/base)
@@ -25,6 +26,14 @@
     ((bind) (function obj (bind-prepared-statement (prepare obj stmt) args)))
     ((gen) (apply function obj (virtual-statement stmt) args))
     (else 'Q* "bad prep-mode: ~e" prep-mode)))
+
+;; fixintconst : Integer/sql-null -> Any
+;; Adjust test based on dbsystem's interpretation of integer constant
+(define (fixintconst v)
+  (cond [(sql-null? v) v]
+        [(FLAG 'isora) (exact->inexact v)]
+        [(ANDFLAGS 'odbc 'issl) (format "~s" v)]
+        [else v]))
 
 (define (simple-tests prep-mode)
 
@@ -205,7 +214,9 @@
                           ((postgresql) '(integer varchar))
                           ((mysql) '(integer var-string))
                           ((sqlite3) '(any any))
-                          ((odbc) '(integer varchar)))))
+                          ((odbc)
+                           (cond [(FLAG 'isora) '(decimal varchar)]
+                                 [else '(integer varchar)])))))
         (let* ([pst (prepare c (sql "select n from the_numbers where n = $1"))]
                [param-types (map cadr (prepared-statement-parameter-types pst))])
           (case dbsys
@@ -274,31 +285,32 @@
 
     ;; Added 18 May 2003: Corrected a bug which incorrectly interleaved
     ;; nulls with returned fields.
-    (unless (ANDFLAGS 'odbc 'issl)
-      (test-case "nulls arrive in correct order"
-        (with-connection c
-          ;; raw NULL has PostgreSQL type "unknown", not allowed
-          (define (clean . strs)
-            (select-val
-             (regexp-replace* #rx"NULL" (apply string-append strs)
-                              (case dbsys
-                                ((postgresql) "cast(NULL as integer)")
-                                (else "NULL")))))
-          (check-equal? (query-row c (clean "NULL, 1, NULL"))
-                        (vector sql-null 1 sql-null))
-          (check-equal? (query-row c (clean "1, NULL"))
-                        (vector 1 sql-null))
-          (check-equal? (query-row c (clean "NULL, 1"))
-                        (vector sql-null 1))
-          (check-equal?
-           (query-row c (clean "1, 2, 3, 4, NULL, 6, NULL, "
-                               "8, 9, 10, 11, 12, NULL, 14, 15, NULL, "
-                               "NULL, 18, 19, 20, NULL, "
-                               "NULL, " "NULL, " "NULL, " "NULL, " "NULL, "
-                               "27, 28, 29, 30, NULL, 32, 33, NULL, 35"))
-           (vector 1 2 3 4 sql-null 6 sql-null 8 9 10 11 12 sql-null 14 15 sql-null
-                   sql-null 18 19 20 sql-null sql-null sql-null sql-null sql-null
-                   sql-null 27 28 29 30 sql-null 32 33 sql-null 35)))))))
+    (test-case "nulls arrive in correct order"
+      (with-connection c
+        ;; raw NULL has PostgreSQL type "unknown", not allowed
+        (define (clean . strs)
+          (select-val
+           (regexp-replace* #rx"NULL" (apply string-append strs)
+                            (case dbsys
+                              ((postgresql) "cast(NULL as integer)")
+                              (else "NULL")))))
+        (check-equal? (query-row c (clean "NULL, 1, NULL"))
+                      (vector-map fixintconst (vector sql-null 1 sql-null)))
+        (check-equal? (query-row c (clean "1, NULL"))
+                      (vector-map fixintconst (vector 1 sql-null)))
+        (check-equal? (query-row c (clean "NULL, 1"))
+                      (vector-map fixintconst (vector sql-null 1)))
+        (check-equal?
+         (query-row c (clean "1, 2, 3, 4, NULL, 6, NULL, "
+                             "8, 9, 10, 11, 12, NULL, 14, 15, NULL, "
+                             "NULL, 18, 19, 20, NULL, "
+                             "NULL, " "NULL, " "NULL, " "NULL, " "NULL, "
+                             "27, 28, 29, 30, NULL, 32, 33, NULL, 35"))
+         (vector-map
+          fixintconst
+          (vector 1 2 3 4 sql-null 6 sql-null 8 9 10 11 12 sql-null 14 15 sql-null
+                  sql-null 18 19 20 sql-null sql-null sql-null sql-null sql-null
+                  sql-null 27 28 29 30 sql-null 32 33 sql-null 35)))))))
 
 (define tx-tests
   (test-suite "transaction functions"
@@ -571,8 +583,7 @@
     (test-case "query errors - nonfatal"
       (with-connection c
         (check-exn exn:fail? (lambda () (query-value c "select nonsuch from notthere")))
-        (check-equal? (query-value c (select-val "17"))
-                      (if (ANDFLAGS 'odbc 'issl) "17" 17))))
+        (check-equal? (query-value c (select-val "17")) (fixintconst 17))))
 
     ;; Refer to https://github.com/racket/racket/issues/1702
     (when (FLAG 'sqlite3)

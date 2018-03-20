@@ -425,7 +425,7 @@
       (check-roundtrip -5)
       (check-roundtrip 1234567890)
       (check-roundtrip -1234567890)
-      (unless (ORFLAGS 'ismss)
+      (unless (ORFLAGS 'ismss 'isora)
         (check-roundtrip #e12345.67809)
         (check-roundtrip #e-12345.67809))
       (unless (ORFLAGS 'mysql 'odbc)
