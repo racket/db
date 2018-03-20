@@ -12,6 +12,7 @@
          db/private/generic/sql-convert
          "ffi.rkt"
          "ffi-constants.rkt"
+         "../generic/sql-convert.rkt"
          "dbsystem.rkt")
 (provide connection%
          handle-status*
@@ -29,8 +30,13 @@
                   env
                   notice-handler
                   char-mode)
+    (init-field quirks) ;; (Listof Symbol)
     (init strict-parameter-types?)
     (super-new)
+
+    ;; -- Quirks --
+    (define/private (quirk-c-bigint-ok?)  (not (memq 'no-c-bigint quirks)))
+    (define/private (quirk-c-numeric-ok?) (not (memq 'no-c-numeric quirks)))
 
     ;; Custodian shutdown can cause disconnect even in the middle of
     ;; operation (with lock held). So use (A _) around any FFI calls,
@@ -147,8 +153,13 @@
                          (send pst after-exec #f)))]))))))
 
     (define/private (load-param fsym db stmt i param typeid)
-      ;; NOTE: param buffers must not move between bind and execute
-      ;; So use buffer utils from ffi.rkt (copy-buffer, etc)
+      ;; typeid-or : Integer -> Integer
+      ;; Replace SQL_UNKNOWN_TYPE with given alternative typeid
+      (define (typeid-or alt-typeid) (if (= typeid SQL_UNKNOWN_TYPE) alt-typeid typeid))
+
+      ;; bind : Integer Integer Bytes [Byte Byte] -> Any
+      ;; NOTE: param buffers must not move between bind and execute.  So use
+      ;; buffer utils from ffi.rkt (copy-buffer, etc); returns dontgc refs.
       (define (bind ctype sqltype buf [prec 0] [scale 0])
         (let* ([lenbuf
                 (int->buffer (if buf (bytes-length buf) SQL_NULL_DATA))]
@@ -156,70 +167,90 @@
                 (A (SQLBindParameter stmt i SQL_PARAM_INPUT ctype sqltype prec scale buf lenbuf))])
           (handle-status fsym status stmt)
           (if buf (cons buf lenbuf) lenbuf)))
-      ;; If the typeid is UNKNOWN, then choose appropriate type based on data,
-      ;; but respect typeid if known.
-      (define unknown-type? (= typeid SQL_UNKNOWN_TYPE))
-      (cond [(string? param)
+
+      ;; do-load-number : (U Real (Cons Integer Nat)) Integer -> Any
+      (define (do-load-number param typeid)
+        (cond [(or (= typeid SQL_NUMERIC) (= typeid SQL_DECIMAL))
+               ;; param = (cons mantissa exponent), scaled integer
+               (define ma (car param))
+               (define ex (cdr param))
+               (define prec (if (zero? ma) 1 (+ 1 (order-of-magnitude (abs ma)))))
+               (cond [(quirk-c-numeric-ok?)
+                      (let* (;; ODBC docs claim max precision is 15 ...
+                             [sign-byte (if (negative? ma) 0 1)] ;; FIXME: negative is 2 in ODBC 3.5 ???
+                             [digits-bytess
+                              ;; 16 bytes of unsigned little-endian data (4 chunks of 4 bytes)
+                              (let loop ([i 0] [ma (abs ma)])
+                                (if (< i 4)
+                                    (let-values ([(q r) (quotient/remainder ma (expt 2 32))])
+                                      (cons (integer->integer-bytes r 4 #f #f)
+                                            (loop (add1 i) q)))
+                                    null))]
+                             [numeric-bytes
+                              (apply bytes-append (bytes prec ex sign-byte) digits-bytess)]
+                             [numeric-buffer (copy-buffer numeric-bytes)])
+                        ;; Example: http://support.microsoft.com/kb/181254
+                        ;; and: http://msdn.microsoft.com/en-us/library/ms712567%28v=vs.85%29.aspx
+                        ;; Call bind first.
+                        (bind SQL_C_NUMERIC typeid numeric-buffer prec ex)
+                        ;; Then set descriptor attributes.
+                        (set-numeric-descriptors (A (SQLGetStmtAttr/HDesc stmt SQL_ATTR_APP_PARAM_DESC))
+                                                 i prec ex numeric-buffer))]
+                     [else
+                      (define s (scaled-integer->decimal-string ma ex))
+                      (bind SQL_C_CHAR typeid (copy-buffer (string->bytes/latin-1 s))
+                            (max prec ex) ex)])]
+              [(or (= typeid SQL_INTEGER)
+                   (= typeid SQL_SMALLINT)
+                   (= typeid SQL_TINYINT))
+               (bind SQL_C_LONG typeid
+                     (copy-buffer (integer->integer-bytes param 4 #t)))]
+              [(or (= typeid SQL_BIGINT))
+               ;; Oracle errors without diagnostic record (!!) on BIGINT param
+               ;; -> http://stackoverflow.com/questions/338609
+               (cond [(quirk-c-bigint-ok?)
+                      (bind SQL_C_SBIGINT typeid
+                            (copy-buffer (integer->integer-bytes param 8 #t)))]
+                     [else
+                      (bind SQL_C_CHAR typeid
+                            (copy-buffer (string->bytes/latin-1 (number->string param))))])]
+              [(or (= typeid SQL_FLOAT)
+                   (= typeid SQL_REAL)
+                   (= typeid SQL_DOUBLE))
+               (bind SQL_C_DOUBLE typeid
+                     (copy-buffer (real->floating-point-bytes (exact->inexact param) 8)))]
+              ;; -- UNKNOWN --
+              [(= typeid SQL_UNKNOWN_TYPE)
+               (cond [(int32? param)
+                      (do-load-number param SQL_INTEGER)]
+                     [(int64? param)
+                      (do-load-number param SQL_BIGINT)]
+                     [else ;; real
+                      (do-load-number param SQL_DOUBLE)])]
+              ;; -- Otherwise error --
+              [else
+               (error 'load-param "internal error: bad type `~a` for parameter: ~e"
+                      typeid param)]))
+
+      ;; -- load-param body --
+      (cond [(or (real? param) (pair? param))
+             (do-load-number param typeid)]
+            [(string? param)
              (case char-mode
                ((wchar)
-                (bind SQL_C_WCHAR (if unknown-type? SQL_WVARCHAR typeid)
+                (bind SQL_C_WCHAR (typeid-or SQL_WVARCHAR)
                       (case WCHAR-SIZE
                         ((2) (cpstr2 param))
                         ((4) (cpstr4 param)))))
                ((utf-8)
-                (bind SQL_C_CHAR (if unknown-type? SQL_VARCHAR typeid)
+                (bind SQL_C_CHAR (typeid-or SQL_VARCHAR)
                       (copy-buffer (string->bytes/utf-8 param))))
                ((latin-1)
-                (bind SQL_C_CHAR (if unknown-type? SQL_VARCHAR typeid)
+                (bind SQL_C_CHAR (typeid-or SQL_VARCHAR)
                       (copy-buffer (string->bytes/latin-1 param (char->integer #\?))))))]
             [(bytes? param)
-             (bind SQL_C_BINARY (if unknown-type? SQL_BINARY typeid)
+             (bind SQL_C_BINARY (typeid-or SQL_BINARY)
                    (copy-buffer param))]
-            [(pair? param) ;; Represents numeric/decimal decomposed as scaled integer
-             (let* ([ma (car param)]
-                    [ex (cdr param)]
-                    ;; ODBC docs claim max precision is 15 ...
-                    [prec-byte (if (zero? ma) 1 (+ 1 (order-of-magnitude (abs ma))))]
-                    [sign-byte (if (negative? ma) 0 1)] ;; FIXME: negative is 2 in ODBC 3.5 ???
-                    [digits-bytess
-                     ;; 16 bytes of unsigned little-endian data (4 chunks of 4 bytes)
-                     (let loop ([i 0] [ma (abs ma)])
-                       (if (< i 4)
-                           (let-values ([(q r) (quotient/remainder ma (expt 2 32))])
-                             (cons (integer->integer-bytes r 4 #f #f)
-                                   (loop (add1 i) q)))
-                           null))]
-                    [numeric-bytes
-                     (apply bytes-append (bytes prec-byte ex sign-byte) digits-bytess)]
-                    [numeric-buffer (copy-buffer numeric-bytes)])
-               ;; Example: http://support.microsoft.com/kb/181254
-               ;; and: http://msdn.microsoft.com/en-us/library/ms712567%28v=vs.85%29.aspx
-               ;; Call bind first.
-               (bind SQL_C_NUMERIC typeid numeric-buffer prec-byte ex)
-               ;; Then set descriptor attributes.
-               (set-numeric-descriptors (A (SQLGetStmtAttr/HDesc stmt SQL_ATTR_APP_PARAM_DESC))
-                                        i prec-byte ex numeric-buffer))]
-            [(real? param)
-             (cond [(or (= typeid SQL_NUMERIC) (= typeid SQL_DECIMAL))
-                    (bind SQL_C_CHAR typeid
-                          (copy-buffer (marshal-decimal fsym i param)))]
-                   [(or (and unknown-type? (int32? param))
-                        (= typeid SQL_INTEGER)
-                        (= typeid SQL_SMALLINT)
-                        (= typeid SQL_BIGINT)
-                        (= typeid SQL_TINYINT))
-                    ;; Oracle errors without diagnostic record (!!) on BIGINT param
-                    ;; -> http://stackoverflow.com/questions/338609
-                    ;; FIXME: find a better solution, eg check driver for BIGINT support (?)
-                    (if (= typeid SQL_BIGINT)
-                        (bind SQL_C_SBIGINT SQL_BIGINT
-                              (copy-buffer (integer->integer-bytes param 8 #t)))
-                        (bind SQL_C_LONG (if unknown-type? SQL_INTEGER typeid)
-                              (copy-buffer (integer->integer-bytes param 4 #t))))]
-                   [else
-                    (bind SQL_C_DOUBLE (if unknown-type? SQL_DOUBLE typeid)
-                          (copy-buffer
-                           (real->floating-point-bytes (exact->inexact param) 8)))])]
             [(boolean? param)
              (bind SQL_C_LONG SQL_BIT
                    (copy-buffer (int->buffer (if param 1 0))))]
@@ -245,7 +276,7 @@
                                     (integer->integer-bytes s 2 #f)))))]
             [(sql-timestamp? param)
              (bind SQL_C_TYPE_TIMESTAMP
-                   (if unknown-type? SQL_TYPE_TIMESTAMP typeid)
+                   (typeid-or SQL_TYPE_TIMESTAMP)
                    (copy-buffer
                     (let ([x param])
                       (bytes-append
@@ -422,25 +453,35 @@
              (get-string)]
             [(or (= typeid SQL_DECIMAL)
                  (= typeid SQL_NUMERIC))
-             (let ([fields (get-int-list '(1 1 1 4 4 4 4) SQL_ARD_TYPE)])
-               (cond [(list? fields)
-                      (let* ([precision (first fields)]
-                             [scale (second fields)]
-                             [sign (case (third fields) ((0) -1) ((1) 1))]
-                             [ma (let loop ([lst (cdddr fields)])
-                                   (if (pair? lst)
-                                       (+ (* (loop (cdr lst)) (expt 2 32))
-                                          (car lst))
-                                       0))])
-                        ;; (eprintf "numeric: ~s\n" fields)
-                        (* sign ma (expt 10 (- scale))))]
-                     [(sql-null? fields) sql-null]))]
+             (cond [(quirk-c-numeric-ok?)
+                    (let ([fields (get-int-list '(1 1 1 4 4 4 4) SQL_ARD_TYPE)])
+                      (cond [(list? fields)
+                             (let* ([precision (first fields)]
+                                    [scale (second fields)]
+                                    [sign (case (third fields) ((0) -1) ((1) 1))]
+                                    [ma (let loop ([lst (cdddr fields)])
+                                          (if (pair? lst)
+                                              (+ (* (loop (cdr lst)) (expt 2 32))
+                                                 (car lst))
+                                              0))])
+                               ;; (eprintf "numeric: ~s\n" fields)
+                               (* sign ma (expt 10 (- scale))))]
+                            [(sql-null? fields) sql-null]))]
+                   [else
+                    (define s (get-string/latin-1))
+                    (or (string->number s 10 'number-or-false 'decimal-as-exact)
+                        (error 'get-column "internal error getting numeric field: ~e" s))])]
             [(or (= typeid SQL_SMALLINT)
                  (= typeid SQL_INTEGER)
                  (= typeid SQL_TINYINT))
              (get-int 4 SQL_C_LONG)]
             [(or (= typeid SQL_BIGINT))
-             (get-int 8 SQL_C_SBIGINT)]
+             (cond [(quirk-c-bigint-ok?)
+                    (get-int 8 SQL_C_SBIGINT)]
+                   [else
+                    (define s (get-string/latin-1))
+                    (or (string->number s 10 'number-or-false 'decimal-as-exact)
+                        (error 'get-column "internal error getting bigint field: ~e" s))])]
             [(or (= typeid SQL_REAL)
                  (= typeid SQL_FLOAT)
                  (= typeid SQL_DOUBLE))
@@ -449,7 +490,7 @@
              (case (get-int 4 SQL_C_LONG)
                ((0) #f)
                ((1) #t)
-               (else 'get-column "internal error: SQL_BIT"))]
+               (else (error 'get-column "internal error: SQL_BIT")))]
             [(or (= typeid SQL_BINARY)
                  (= typeid SQL_VARBINARY))
              (get-bytes)]

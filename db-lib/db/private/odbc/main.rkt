@@ -17,9 +17,10 @@
                       #:notice-handler [notice-handler void]
                       #:strict-parameter-types? [strict-parameter-types? #f]
                       #:character-mode [char-mode 'wchar]
+                      #:quirks [quirks '()]
                       #:use-place [use-place #f])
   (cond [use-place
-         (place-connect (list 'odbc dsn user auth strict-parameter-types? char-mode)
+         (place-connect (list 'odbc dsn user auth strict-parameter-types? char-mode quirks)
                         odbc-proxy%)]
         [else
          (let ([notice-handler (make-handler notice-handler "notice")])
@@ -34,15 +35,17 @@
                           (db db)
                           (notice-handler notice-handler)
                           (strict-parameter-types? strict-parameter-types?)
-                          (char-mode char-mode))))))))]))
+                          (char-mode char-mode)
+                          (quirks quirks))))))))]))
 
 (define (odbc-driver-connect connection-string
                              #:notice-handler [notice-handler void]
                              #:strict-parameter-types? [strict-parameter-types? #f]
                              #:character-mode [char-mode 'wchar]
+                             #:quirks [quirks '()]
                              #:use-place [use-place #f])
   (cond [use-place
-         (place-connect (list 'odbc-driver connection-string strict-parameter-types? char-mode)
+         (place-connect (list 'odbc-driver connection-string strict-parameter-types? char-mode quirks)
                         odbc-proxy%)]
         [else
          (let ([notice-handler (make-handler notice-handler "notice")])
@@ -57,7 +60,8 @@
                           (db db)
                           (notice-handler notice-handler)
                           (strict-parameter-types? strict-parameter-types?)
-                          (char-mode char-mode))))))))]))
+                          (char-mode char-mode)
+                          (quirks quirks))))))))]))
 
 (define (odbc-data-sources)
   (define server-buf (make-bytes 1024))

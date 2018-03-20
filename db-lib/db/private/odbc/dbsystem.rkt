@@ -109,9 +109,9 @@
 (define (check-numeric fsym param)
   (define (bad note)
     (error/no-convert fsym "ODBC" "numeric" param note))
-  (unless (rational? param) (bad ""))
+  (unless (and (rational? param) (exact? param)) (bad "(expected exact rational)"))
   (let ([scaled (exact->scaled-integer (inexact->exact param))])
-    (unless scaled (bad ""))
+    (unless scaled (bad "(bad denominator for exact decimal)"))
     (let ([ma (car scaled)]
           [ex (cdr scaled)])
       ;; check (abs ma) fits in 16*8 bits, ex fits in char

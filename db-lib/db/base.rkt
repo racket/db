@@ -315,5 +315,6 @@
         #:notice-handler (or/c 'output 'error)
         #:strict-parameter-types? boolean?
         #:character-mode (or/c 'wchar 'utf-8 'latin-1)
+        #:quirks (listof symbol?)
         #:use-place boolean?)
        data-source?)])

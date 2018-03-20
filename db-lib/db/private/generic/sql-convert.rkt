@@ -2,27 +2,38 @@
 (require racket/math)
 
 (provide exact->decimal-string    ;; odbc, tests (?)
+         scaled-integer->decimal-string ;; odbc
          exact->scaled-integer    ;; pg, odbc
          inexact->scaled-integer) ;; pg
 
 ;; ========================================
 
 ;; exact->decimal-string : exact -> string or #f
-;; always includes decimal point
 (define (exact->decimal-string n)
-  (let* ([whole-part (truncate n)]
-         [fractional-part (- (abs n) (abs whole-part))]
-         [scaled (exact->scaled-integer fractional-part)])
-    (and scaled
-         (let* ([ma (car scaled)]
-                [ex (cdr scaled)]
-                [ma-str (number->string ma)])
-           (if (zero? ex)
-               (number->string whole-part)
-               (string-append (number->string whole-part)
-                              "."
-                              (make-string (- ex (string-length ma-str)) #\0)
-                              ma-str))))))
+  (cond [(exact->scaled-integer n)
+         => (lambda (ma+ex)
+              (scaled-integer->decimal-string (car ma+ex) (cdr ma+ex)))]
+        [else #f]))
+
+;; scaled-integer->decimal-string : Int Int -> String
+;; Given M and E, converts (M * 10^-E) to a decimal string.
+;; If E>0, then there is a decimal point and exactly E digits after it.
+(define (scaled-integer->decimal-string ma ex)
+  (cond [(zero? ex) (number->string ma)]
+        [(< ex 0)
+         (string-append (number->string ma) (make-string ex #\0))]
+        [(> ex 0)
+         (define mstr (number->string (abs ma)))
+         (define len (string-length mstr))
+         (cond [(<= len ex)
+                (string-append (if (negative? ma) "-0." "0.")
+                               (make-string (- ex len) #\0)
+                               mstr)]
+               [else
+                (string-append (if (negative? ma) "-" "")
+                               (substring mstr 0 (- len ex))
+                               "."
+                               (substring mstr (- len ex) len))])]))
 
 ;; exact->scaled-integer : exact-rational -> (cons int int) or #f
 ;; Given x, returns (cons M E) s.t. x = (M * 10^-E)

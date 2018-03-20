@@ -22,7 +22,7 @@ server -> client on conn-chan:   (or (list 'ok)
                                      (list 'error string))
 
 where <connect-spec> ::= (list 'sqlite3 path/sym mode-sym delay-num limit-num)
-                      |  (list 'odbc string string/#f string/#f boolean symbol)
+                      |  (list 'odbc string string/#f string/#f boolean symbol symbol-list)
 |#
 (define (connection-server client-chan)
   (let loop ()
@@ -46,17 +46,19 @@ where <connect-spec> ::= (list 'sqlite3 path/sym mode-sym delay-num limit-num)
                                    #:mode mode
                                    #:busy-retry-delay busy-retry-delay
                                    #:busy-retry-limit busy-retry-limit)]
-                 [(list 'odbc dsn user password strict-param? char-mode)
+                 [(list 'odbc dsn user password strict-param? char-mode quirks)
                   (odbc-connect #:dsn dsn
                                 #:user user
                                 #:password password
                                 #:strict-parameter-types? strict-param?
                                 #:character-mode char-mode
+                                #:quirks quirks
                                 #:use-place #f)]
-                 [(list 'odbc-driver connection-string strict-param? char-mode)
+                 [(list 'odbc-driver connection-string strict-param? char-mode quirks)
                   (odbc-driver-connect connection-string
                                        #:strict-parameter-types? strict-param?
                                        #:character-mode char-mode
+                                       #:quirks quirks
                                        #:use-place #f)])]
               [p (new proxy-server% (connection c) (channel conn-chan))])
          (pchan-put conn-chan (list 'ok))

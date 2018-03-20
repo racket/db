@@ -208,4 +208,4 @@ considered important.
 (define odbc-data-source
   (mk-specialized 'odbc-data-source 'odbc 0
                   '(#:dsn #:user #:password #:notice-handler
-                    #:strict-parameter-types? #:character-mode #:use-place)))
+                    #:strict-parameter-types? #:character-mode #:quirks #:use-place)))

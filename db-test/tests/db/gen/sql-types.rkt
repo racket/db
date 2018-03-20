@@ -2,7 +2,6 @@
 (require rackunit
          racket/class
          racket/serialize
-         (prefix-in srfi: srfi/19)
          db/base
          db/private/generic/sql-convert
          "../config.rkt")
@@ -12,8 +11,19 @@
 (define sql-types:test
   (test-suite "SQL support utilities"
     (test-case "exact->decimal-string"
-      (check-equal? (exact->decimal-string 12) "12")
-      (check-equal? (exact->decimal-string 1000) "1000")
+      (check-equal? (exact->decimal-string 0)     "0")
+      (check-equal? (exact->decimal-string 12)    "12")
+      (check-equal? (exact->decimal-string 1000)  "1000")
+      (check-equal? (exact->decimal-string 12300) "12300")
+      (check-equal? (exact->decimal-string -12)   "-12")
+      (check-equal? (exact->decimal-string -1000) "-1000")
+      (check-equal? (exact->decimal-string -1230) "-1230")
+      (check-equal? (exact->decimal-string #e123.456)  "123.456")
+      (check-equal? (exact->decimal-string #e0.123)    "0.123")
+      (check-equal? (exact->decimal-string #e0.00123)  "0.00123")
+      (check-equal? (exact->decimal-string #e-123.456) "-123.456")
+      (check-equal? (exact->decimal-string #e-0.123)   "-0.123")
+      (check-equal? (exact->decimal-string #e-0.00123) "-0.00123")
       (check-equal? (exact->decimal-string 1/2) "0.5")
       (check-equal? (exact->decimal-string 1/4) "0.25")
       (check-equal? (exact->decimal-string 1/10) "0.1")
