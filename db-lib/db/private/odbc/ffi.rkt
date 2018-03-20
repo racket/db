@@ -329,6 +329,8 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
         -> (values status
                    (and (ok-status? status)
                         column-buf
+                        ;; Oracle returns garbage column name/len for TIME columns
+                        (<= 0 column-len (bytes-length column-buf))
                         (bytes->string/utf-8 column-buf #f 0 column-len))
                    data-type size digits nullable)))
 
