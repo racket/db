@@ -68,6 +68,9 @@
 (define SQL_WVARCHAR             -9)
 (define SQL_WLONGVARCHAR        -10)
 
+(define SQL_SS_TIME2           -154)
+(define SQL_C_SS_TIME2       #x4000)
+
 (define SQL_CODE_YEAR             1)
 (define SQL_CODE_MONTH            2)
 (define SQL_CODE_DAY              3)

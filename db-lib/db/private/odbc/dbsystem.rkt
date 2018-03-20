@@ -131,6 +131,7 @@
    (12 varchar        string?)
    (91 date           sql-date?)
    (92 time           sql-time?)
+   (-154 time2        sql-time?)
    (93 timestamp      sql-timestamp?)
    (-1 longvarchar    string?)
    (-2 binary         bytes?)
@@ -190,9 +191,14 @@
   (110 interval-day-second    #f)
   (111 interval-hour-minute   #f)
   (112 interval-hour-second   #f)
-  (113 interval-minute-second #f))
+  (113 interval-minute-second #f)
+
+  ;; SQL Server extensions
+  (-154 time 0)
+  )
 
 (define (supported-typeid? x)
   (case x
     ((0 1 2 3 4 5 6 7 8 9 12 91 92 93 -1 -2 -3 -4 -5 -6 -7 -8 -9 -10) #t)
+    ((-154) #t)
     (else #f)))

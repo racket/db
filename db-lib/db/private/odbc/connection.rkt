@@ -265,6 +265,33 @@
                                     (integer->integer-bytes m 2 #f)
                                     (integer->integer-bytes d 2 #f)))))]
             [(sql-time? param)
+             (cond [(= typeid SQL_SS_TIME2)
+                    (bind SQL_C_BINARY typeid
+                          (copy-buffer
+                           (let* ([x param]
+                                  [h (sql-time-hour x)]
+                                  [m (sql-time-minute x)]
+                                  [s (sql-time-second x)]
+                                  [ns (sql-time-nanosecond x)])
+                             (bytes-append (integer->integer-bytes h 2 #f)
+                                           (integer->integer-bytes m 2 #f)
+                                           (integer->integer-bytes s 2 #f)
+                                           (integer->integer-bytes 0 2 #f)
+                                           (let ([ns (* 100 (quotient ns 100))])
+                                             (integer->integer-bytes ns 4 #f)))))
+                          12 7)]
+                   [else
+                    (bind SQL_C_TYPE_TIME SQL_TYPE_TIME
+                          (copy-buffer
+                           (let* ([x param]
+                                  [h (sql-time-hour x)]
+                                  [m (sql-time-minute x)]
+                                  [s (sql-time-second x)])
+                             (bytes-append (integer->integer-bytes h 2 #f)
+                                           (integer->integer-bytes m 2 #f)
+                                           (integer->integer-bytes s 2 #f)))))]
+                   )]
+            [(sql-time? param)
              (bind SQL_C_TYPE_TIME SQL_TYPE_TIME
                    (copy-buffer
                     (let* ([x param]
@@ -358,14 +385,16 @@
           (let-values ([(status ind) (A (SQLGetData stmt i ctype buf 0))])
             (handle-status fsym status stmt)
             (cond [(= ind SQL_NULL_DATA) sql-null]
-                  [else (let ([in (open-input-bytes buf)])
-                          (for/list ([size (in-list sizes)])
-                            (case size
-                              ((1) (read-byte in))
-                              ((2) (integer-bytes->integer (read-bytes 2 in) #f))
-                              ((4) (integer-bytes->integer (read-bytes 4 in) #f))
-                              (else (error/internal
-                                     'get-int-list "bad size: ~e" size)))))]))))
+                  [else (parse-int-list buf sizes)]))))
+      (define (parse-int-list buf sizes)
+        (let ([in (open-input-bytes buf)])
+          (for/list ([size (in-list sizes)])
+            (case size
+              ((1) (read-byte in))
+              ((2) (integer-bytes->integer (read-bytes 2 in) #f))
+              ((4) (integer-bytes->integer (read-bytes 4 in) #f))
+              (else (error/internal
+                     'get-int-list "bad size: ~e" size))))))
 
       (define (get-varbuf ctype ntlen convert)
         ;; ntlen is null-terminator length (1 for char data, 0 for binary, ??? for wchar)
@@ -502,6 +531,14 @@
              (let ([fields (get-int-list '(2 2 2) SQL_C_TYPE_TIME)])
                (cond [(list? fields) (apply sql-time (append fields (list 0 #f)))]
                      [(sql-null? fields) sql-null]))]
+            [(= typeid SQL_SS_TIME2)
+             (define buf (get-bytes))
+             (cond [(sql-null? buf) sql-null]
+                   [else
+                    ;;(eprintf "-- ss_time2 : ~s\n" (bytes->list buf))
+                    (let ([fields (parse-int-list buf '(2 2 2 2 4))])
+                      (define-values (h m s _pad ns) (apply values fields))
+                      (sql-time h m s ns #f))])]
             [(= typeid SQL_TYPE_TIMESTAMP)
              (let ([fields (get-int-list '(2 2 2 2 2 2 4) SQL_C_TYPE_TIMESTAMP)])
                (cond [(list? fields) (apply sql-timestamp (append fields (list #f)))]
