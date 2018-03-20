@@ -63,6 +63,8 @@
          (roundtrip-stmt/oracle)]
         [(FLAG 'isdb2)
          (roundtrip-stmt/db2)]
+        [(FLAG 'ismss)
+         (roundtrip-stmt/sqlserver)]
         [else #f]))
 
 (define (roundtrip-stmt/mysql)
@@ -92,6 +94,24 @@
     ;; FIXME: time (bug?)
     [(datetime) (wrap "cast(? as datetime)")]
     ;; FIXME: more types
+    [else #f]))
+
+(define (roundtrip-stmt/sqlserver)
+  (define (wrap e) (format "select ~a" e))
+  (case (current-type)
+    [(varchar)  (wrap "cast(? as nvarchar(200))")]
+    [(blob)     (wrap "cast(? as binary)")]
+    [(integer)  (wrap "cast(? as integer)")]
+    [(smallint tinyint) (wrap "cast(? as smallint)")]
+    [(bigint)   (wrap "cast(? as bigint)")]
+    [(real)     (wrap "cast(? as real)")]
+    [(double)   (wrap "cast(? as double precision)")]
+    [(numeric decimal)
+     (wrap "cast(? as decimal(30,15))")]
+    [(date)     (wrap "cast(? as date)")]
+    [(time)     (wrap "cast(? as time)")]
+    [(datetime timestamp)
+     (wrap "cast(? as datetime)")]
     [else #f]))
 
 (define (roundtrip-stmt/db2)
@@ -427,19 +447,19 @@
         (check-varchar str)
         ;; and do the extra one-char checks:
         (check-1char (substring str 0 1)))
-      (unless (ORFLAGS 'isora 'isdb2)
+      (unless (ORFLAGS 'isora 'isdb2 'ismss)
         (check-varchar (make-string 800 #\a)))
-      (unless (ORFLAGS 'isora 'isdb2) ;; too long
+      (unless (ORFLAGS 'isora 'isdb2 'ismss) ;; too long
         (check-varchar (apply string-append some-intl-strings)))
       ;; one-char checks
       (check-1char (string #\λ))
       (check-1char (make-string 1 #\u2200))
       (check-varchar (make-string 20 #\u2200))
       ;; check large strings
-      (unless (ORFLAGS 'isora 'isdb2) ;; too long (???)
+      (unless (ORFLAGS 'isora 'isdb2 'ismss) ;; too long (???)
         (check-varchar (make-string 100 #\u2200)))
       ;; Following might not produce valid string (??)
-      (unless (ORFLAGS 'isora 'isdb2)
+      (unless (ORFLAGS 'isora 'isdb2 'ismss)
         (check-varchar (build-string 800 (lambda (n) (integer->char (add1 n)))))))
 
     (type-test-case '(character)
