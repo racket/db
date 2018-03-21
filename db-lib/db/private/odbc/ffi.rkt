@@ -130,7 +130,7 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
            [else
             ;; Other unixes use unixodbc, which defines WCHAR as 16-bit
             ;; for compat w/ Windows (even though Linux wchar_t is 32-bit)
-            (values (ffi-lib "libodbc" '("1" #f) #:fail (lambda () #f))
+            (values (ffi-lib "libodbc" '("2" "1" #f) #:fail (lambda () #f))
                     2)]))))
 
 (define-ffi-definer define-odbc odbc-lib

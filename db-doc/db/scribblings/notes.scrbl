@@ -177,7 +177,7 @@ included automatically with Windows.}
 (@hyperlink["http://www.iodbc.org"]{iODBC}), which is included (in
 @tt{/usr/lib}) in Mac OS version 10.2 onwards.}
 
-@item{On Linux, the driver manager is @tt{libodbc.so.1}
+@item{On Linux, the driver manager is @tt{libodbc.so.{2,1}}
 (@hyperlink["http://www.unixodbc.org"]{unixODBC}---iODBC is not
 supported). It is available from the @tt{unixodbc} package in
 Debian/Ubuntu and in the @tt{unixODBC} package in Red Hat.}
@@ -195,88 +195,99 @@ vary widely depending on the driver in use and even the configuration
 of a particular data source.
 
 The following sections describe the configurations that this library
-has been tested with.
+has been tested with. Reports of success or failure on other platforms
+or with other drivers would be appreciated.
 
-Reports of success or failure on other platforms or with other drivers
-would be appreciated.
-
-@;{
-** There's no reason to actually use the following drivers. They're just
-** useful for testing ODBC support.
-
-@subsection{PostgreSQL ODBC Driver}
-
-The PostgreSQL ODBC driver version 09.00.0300 has been tested on
-@bold{win32} and @bold{linux}. 
-
-To get specific parameter type information, set the following Data
-Source options: @tt{Protocol = 7.4} and @tt{UserServerSidePrepare =
-1}, and use the @racket[#:strict-parameter-types?] connection option.
-
-Older versions of the driver, including version 08.03.0200, provided
-by Ubuntu 11.04, seem to have a bug in the character mode this library
-uses by default; use the @racket[#:character-mode 'utf-8] connection
-option as a workaround.
-
-@subsection{MySQL ODBC Driver}
-
-The MySQL ODBC driver version 5.1.6-1 has been tested on @bold{win32}
-and @bold{linux}.
-
-Avoid using the @racket[#:strict-parameter-types?] connection option,
-as the driver assigns all parameters the type @tt{varchar}. 
-
-@subsection{SQLite3 ODBC Driver}
-
-Avoid using the @racket[#:strict-parameter-types?] connection option,
-as the driver assigns all parameters the type @tt{longvarchar}.
-Furthermore, this driver interprets the declared types of columns
-strictly, replacing nonconforming values in query results with
-@tt{NULL}. All computed columns, even those with explicit @tt{CAST}s,
-seem to be returned as @tt{text}.
-}
 
 @subsection{DB2 ODBC Driver}
 
-The driver from IBM DB2 Express-C v9.7 has been tested on Ubuntu 11.04
-(32-bit only).
+IBM DB2 ODBC drivers were tested with the following software configuration:
 
-For a typical installation where the instance resides at
-@tt{/home/db2inst1}, set the following option in the Driver
-configuration: @tt{Driver =
-/home/db2inst1/sqllib/lib32/libdb2.so}. (The path would presumably be
-different for a 64-bit installation.)
+@itemlist[
+@item{Platform: Centos 7.4 on x86_64}
+@item{Database: DB2 Express-C for Linux x64 v11.1}
+@item{Driver: ODBC for DB2 (included with DB2 Express-C)}
+]
 
-The DB2 driver does not seem to accept a separate argument for the
-database to connect to; it must be the same as the Data Source name.
+This driver seems to require environment variables to be set using the
+provided scripts (eg, @tt{source /home/db2inst1/sqllib/db2profile}).
+
+Known issues:
+@itemlist[
+
+@item{The driver does not support the standard @tt{SQL_C_NUMERIC}
+structure for retrieving @tt{DECIMAL}/@tt{NUMERIC} fields.
+
+@bold{Fix: } Use @racket[#:quirks '(no-c-numeric)] with @racket[odbc-connect].}
+
+]
 
 @subsection{Oracle ODBC Driver}
 
-The driver from Oracle Database 10g Release 2 Express Edition has been
-tested on Ubuntu 11.04 (32-bit only).
+Oracle ODBC drivers were tested with the following software configuration:
 
-It seems the @tt{ORACLE_HOME} and @tt{LD_LIBRARY_PATH} environment
-variables must be set according to the @tt{oracle_env.{csh,sh}} script
-for the driver to work. 
+@itemlist[
+@item{Platform: Centos 7.4 on x86_64}
+@item{Database: Oracle XE 11g (11.2.0)}
+@item{Drivers: Oracle Instant Client ODBC (11.2.0 and 12.2.0)}
+]
 
-Columns of type @tt{TIME} can cause a memory error (ie, Racket
-crashes). This seems to be due to a
-@hyperlink["http://forums.oracle.com/forums/thread.jspa?threadID=572661"]{bug}
-in Oracle's ODBC driver, but I do not yet have a workaround.
+Typical installations of the drivers require the @tt{LD_LIBRARY_PATH}
+environment variable to be set to the driver's installed @tt{lib}
+directory (ie, the directory containing @tt{libsqora.so}) so the
+driver can find its sibling shared libraries.
 
-@;{
-Maybe Oracle bug? See:
-  http://forums.oracle.com/forums/thread.jspa?threadID=572661
-  http://stackoverflow.com/questions/38435/
-  http://forums.oracle.com/forums/thread.jspa?threadID=856713
-}
+Known issues:
+@itemlist[
+
+@item{With the @racket[#:strict-parameter-types? #t] option,
+parameters seem to be always assigned the type @tt{varchar}.
+
+@bold{Fix: } Leave strict parameter types off (the default).}
+
+@item{The driver does not support the @tt{SQL_C_BIGINT} format for
+parameters or result fields. Consequently, passing large integers as
+query parameters may fail.
+
+@bold{Fix: } Use @racket[#:quirks '(no-c-bigint)] with
+@racket[odbc-connect].}
+
+@item{A field of type @tt{TIME} causes the driver to return garbage
+for the typeid and type parameters. This usually causes an error with
+a message like ``unsupported type; typeid: -29936'', but with a random
+typeid value. (Oracle appears not to have a @tt{TIME} type, so this
+bug might only appear when a value is explicitly @tt{CAST} as
+@tt{TIME}---for some reason, that doesn't produce an error.)}
+
+@item{Attempting to quit Racket with a connection still open may cause
+Racket to hang. Specifically, the problem seems to be in the driver's
+@tt{_fini} function.
+
+@bold{Fix: } Close connections before exiting, either explicitly using
+@racket[disconnect] or by shutting down their custodians.}
+
+]
 
 @subsection{SQL Server ODBC Driver}
 
-Basic SQL Server support has been verified on Windows,
-but the automated test suite has not yet been adapted and run.
+Microsoft SQL Server ODBC drivers were tested with the following
+software configuration:
 
-The ``SQL Server'' driver refuses to accept @tt{NUMERIC} or
-@tt{DECIMAL} parameters, producing the error ``Invalid precision value
-(SQLSTATE: HY104).'' If possible, use the ``Native SQL Server''
-driver instead.
+@itemlist[
+@item{Platform: Windows 10 on x86_64}
+@item{Database: SQL Server Express 2017}
+@item{Drivers: ODBC Driver 13 for SQL Server, SQL Server Native Client 11.0}
+]
+
+Known issues:
+@itemlist[
+
+@item{If queries are nested or interleaved---that is, a second query
+is executed before the first query's results are completely
+consumed---the driver might signal an error ``Connection is busy with
+results for another command (SQLSTATE: HY000)''.
+
+@bold{Fix: } Set the @tt{MARS_Connection} data source option to @tt{Yes} (see
+@hyperlink["https://stackoverflow.com/questions/9017264/why-only-some-users-get-the-error-connection-is-busy"]{this page}). The ODBC Manager GUI does not expose the option, but it can be added @hyperlink["https://serverfault.com/questions/302169/odbc-sql-server-how-do-i-turn-on-multiple-active-result-sets"]{by editing the registry}.}
+
+]

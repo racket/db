@@ -294,6 +294,7 @@ Reports whether the SQLite native library is found, in which case
                        [#:character-mode character-mode
                         (or/c 'wchar 'utf-8 'latin-1)
                         'wchar]
+                       [#:quirks quirks (listof symbol?) null]
                        [#:use-place use-place boolean? #f])
          connection?]{
 
@@ -315,6 +316,18 @@ Reports whether the SQLite native library is found, in which case
   to @racket['utf-8] or @racket['latin-1], depending on which encoding
   the driver uses.
 
+  The @racket[quirks] argument represents a list of flags to modify
+  the behavior of the connection. The following quirks are currently
+  supported:
+  @itemlist[
+
+  @item{@racket['no-c-bigint] --- Don't use @tt{SQL_C_NUMERIC} to
+  fetch @tt{NUMERIC}/@tt{DECIMAL} values.}
+
+  @item{@racket['no-c-numeric] --- Don't use @tt{SQL_C_BIGINT} to bind
+  parameters or fetch field values.}
+
+  ]
   See @secref["odbc-status"] for notes on specific ODBC drivers and
   recommendations for connection options.
 
@@ -334,6 +347,7 @@ Reports whether the SQLite native library is found, in which case
                               [#:character-mode character-mode
                                (or/c 'wchar 'utf-8 'latin-1)
                                'wchar]
+                              [#:quirks quirks (listof symbol?) null]
                               [#:use-place use-place boolean? #f])
          connection?]{
 
