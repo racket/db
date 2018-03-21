@@ -175,6 +175,7 @@
                (define ma (car param))
                (define ex (cdr param))
                (define prec (if (zero? ma) 1 (+ 1 (order-of-magnitude (abs ma)))))
+               (define prec* (max prec ex))
                (cond [(quirk-c-numeric-ok?)
                       (let* (;; ODBC docs claim max precision is 15 ...
                              [sign-byte (if (negative? ma) 0 1)] ;; FIXME: negative is 2 in ODBC 3.5 ???
@@ -187,19 +188,16 @@
                                             (loop (add1 i) q)))
                                     null))]
                              [numeric-bytes
-                              (apply bytes-append (bytes prec ex sign-byte) digits-bytess)]
+                              (apply bytes-append (bytes prec* ex sign-byte) digits-bytess)]
                              [numeric-buffer (copy-buffer numeric-bytes)])
-                        ;; Example: http://support.microsoft.com/kb/181254
-                        ;; and: http://msdn.microsoft.com/en-us/library/ms712567%28v=vs.85%29.aspx
                         ;; Call bind first.
-                        (bind SQL_C_NUMERIC typeid numeric-buffer prec ex)
+                        (bind SQL_C_NUMERIC typeid numeric-buffer prec* ex)
                         ;; Then set descriptor attributes.
                         (set-numeric-descriptors (A (SQLGetStmtAttr/HDesc stmt SQL_ATTR_APP_PARAM_DESC))
-                                                 i prec ex numeric-buffer))]
+                                                 i prec* ex numeric-buffer))]
                      [else
                       (define s (scaled-integer->decimal-string ma ex))
-                      (bind SQL_C_CHAR typeid (copy-buffer (string->bytes/latin-1 s))
-                            (max prec ex) ex)])]
+                      (bind SQL_C_CHAR typeid (copy-buffer (string->bytes/latin-1 s)) prec* ex)])]
               [(or (= typeid SQL_INTEGER)
                    (= typeid SQL_SMALLINT)
                    (= typeid SQL_TINYINT))
