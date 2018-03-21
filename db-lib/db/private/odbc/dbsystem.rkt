@@ -94,7 +94,7 @@
           ((typeid) name) ...
           ((*typeid) *name) ...
           (else
-           (lambda (fsym index param)
+           (lambda (fsym param)
              (error/unsupported-type fsym x))))))))
 
 (define (mk-check typeid pred #:contract-parts [ctc-parts #f])
