@@ -15,6 +15,10 @@
 (define _sqllen _long)
 (define _sqlulen _ulong)
 
+;; https://docs.microsoft.com/en-us/sql/odbc/reference/odbc-64-bit-information
+(define sizeof-SQLLONG 4) ;; yes, even on 64-bit environments
+(define sizeof-SQLLEN (ctype-sizeof _sqllen))
+
 (define _sqlsmallint _sshort)
 (define _sqlusmallint _ushort)
 (define _sqlinteger _sint)
@@ -28,76 +32,61 @@
         (src : _bytes)
         (srcstart : _intptr)
         (srcend : _intptr)
-        (#f : _pointer)   ;; No buffer so it'll allocate for us.
-        (0 : _intptr)
+        (_pointer = #f)   ;; No buffer so it'll allocate for us.
+        (_intptr = 0)
         (clen : (_ptr o _intptr))
-        (1 : _intptr)
+        (_intptr = 0)
         -> (out : _gcpointer)
-        -> (begin (ptr-set! out _int32 clen 0)
-                  (values out clen))))
+        -> (values out clen)))
 
 (define-mz scheme_ucs4_to_utf16
   (_fun (src srcstart srcend) ::
         (src : _string/ucs-4)
         (srcstart : _intptr)
         (srcend : _intptr)
-        (#f : _pointer)   ;; No buffer so it'll allocate for us.
-        (0 : _intptr)
+        (_pointer = #f)   ;; No buffer so it'll allocate for us.
+        (_intptr = 0)
         (clen : (_ptr o _intptr))
-        (1 : _intptr)
+        (_intptr = 0)
         -> (out : _gcpointer)
-        -> (begin (ptr-set! out _int16 clen 0)
-                  (values out clen))))
-
-(define-mz scheme_make_sized_char_string
-  (_fun (chars clen copy?) ::
-        (chars : _gcpointer)
-        (clen  : _intptr)
-        (copy? : _bool)
-        -> _racket))
-
-(define scheme_make_sized_byte_string/string
-  (get-ffi-obj 'scheme_make_sized_byte_string #f
-               (_fun (buf len) ::
-                     (buf : _string/ucs-4)
-                     (len  : _intptr)
-                     (#t : _bool)
-                     -> _racket)))
+        -> (values out clen)))
 
 ;; For dealing with param buffers, which must not be moved by GC
 
-(define (copy-buffer buffer)
-  (let* ([buffer (if (string? buffer) (string->bytes/utf-8 buffer) buffer)]
-         [n (bytes-length buffer)]
-         [rawcopy (malloc (add1 n) 'atomic-interior)]
-         [copy (make-sized-byte-string rawcopy n)])
-    (memcpy copy buffer n)
-    (ptr-set! rawcopy _byte n 0)
-    copy))
+;; bytes->non-moving-pointer : Bytes -> NonMovingPointer
+(define (bytes->non-moving-pointer bs)
+  (define len (bytes-length bs))
+  ;; Note: avoid (malloc 0); returns #f, SQL Server driver treats as SQL NULL!
+  (define copy (malloc (max 1 len) 'atomic-interior))
+  (memcpy copy bs len)
+  copy)
 
-(define (int->buffer n)
-  (let ([copy (make-sized-byte-string (malloc 4 'atomic-interior) 4)])
-    (integer->integer-bytes n 4 #t (system-big-endian?) copy 0)
-    copy))
-
+;; cpstr{2,4} : String -> Bytes
+;; Converts string to utf16/ucs4 (platform-endian) bytes.
 (define (cpstr2 str)
   (let-values ([(shorts slen) (scheme_ucs4_to_utf16 str 0 (string-length str))])
-    (let* ([n (* slen 2)]
-           [rawcopy (malloc (add1 n) 'atomic-interior)]
-           [copy (make-sized-byte-string rawcopy n)])
-      (memcpy copy shorts n)
-      (ptr-set! rawcopy _byte n 0)
-      copy)))
-
+    (define blen (* 2 slen))
+    (define bs (make-bytes blen))
+    (memcpy bs shorts blen)
+    bs))
 (define (cpstr4 str)
-  (copy-buffer (scheme_make_sized_byte_string/string str (* (string-length str) 4))))
+  (define blen (* 4 (string-length str)))
+  (define bs (make-bytes blen))
+  (memcpy bs (cast str _string/ucs-4 _gcpointer) blen)
+  bs)
 
+;; mkstr{2,4} : Bytes Nat _ -> String
+;; Converts utf16/ucs4 (platform-endian) to string.
 (define (mkstr2 buf len fresh?)
   (let-values ([(chars clen) (scheme_utf16_to_ucs4 buf 0 (quotient len 2))])
-    (scheme_make_sized_char_string chars clen #f)))
-
+    (define s (make-string clen))
+    (memcpy (cast s _string/ucs-4 _gcpointer) chars clen _uint32)
+    s))
 (define (mkstr4 buf len fresh?)
-  (scheme_make_sized_char_string buf (quotient len 4) (not fresh?)))
+  (define slen (quotient len 4))
+  (define s (make-string slen))
+  (memcpy (cast s _string/ucs-4 _gcpointer) buf slen _uint32)
+  s)
 
 ;; ========================================
 
@@ -269,16 +258,16 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
         -> _sqlreturn))
 
 (define-odbc SQLBindParameter
-  (_fun (handle param-num iomode c-type sql-type column-size digits value len-or-ind) ::
+  (_fun (handle param-num c-type sql-type column-size digits value len len-or-ind) ::
         (handle : _sqlhstmt)
         (param-num : _sqlusmallint)
-        (iomode : _sqlsmallint)
+        (_sqlsmallint = SQL_PARAM_INPUT)
         (c-type : _sqlsmallint)
         (sql-type : _sqlsmallint)
         (column-size : _sqlulen)
         (digits : _sqlsmallint)
         (value : _pointer) ;; must be pinned until after SQLExecute called
-        ((if (bytes? value) (bytes-length value) 0) : _sqllen) ;; ignored for fixed-length data
+        (len : _sqllen) ;; ignored for fixed-length data
         (len-or-ind : _pointer) ;; _sqllen-pointer)
         -> _sqlreturn))
 

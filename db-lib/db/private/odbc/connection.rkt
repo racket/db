@@ -157,16 +157,21 @@
       ;; Replace SQL_UNKNOWN_TYPE with given alternative typeid
       (define (typeid-or alt-typeid) (if (= typeid SQL_UNKNOWN_TYPE) alt-typeid typeid))
 
-      ;; bind : Integer Integer Bytes [Byte Byte] -> Any
-      ;; NOTE: param buffers must not move between bind and execute.  So use
-      ;; buffer utils from ffi.rkt (copy-buffer, etc); returns dontgc refs.
-      (define (bind ctype sqltype buf [prec 0] [scale 0])
-        (let* ([lenbuf
-                (int->buffer (if buf (bytes-length buf) SQL_NULL_DATA))]
-               [status
-                (A (SQLBindParameter stmt i SQL_PARAM_INPUT ctype sqltype prec scale buf lenbuf))])
-          (handle-status fsym status stmt)
-          (if buf (cons buf lenbuf) lenbuf)))
+      ;; bind : Integer Integer (U Bytes #f) [Byte Byte] -> Any
+      ;; NOTE: param buffers must not move between bind and execute.
+      ;; Returns refs that must not be GC'd until after SQLExecute.
+      (define (bind ctype sqltype value [prec 0] [scale 0])
+        (define lenbuf
+          (bytes->non-moving-pointer
+           (integer->integer-bytes (if value (bytes-length value) SQL_NULL_DATA) sizeof-SQLLEN #t)))
+        (define-values (valbuf vallen)
+          (cond [(bytes? value) (values (bytes->non-moving-pointer value) (bytes-length value))]
+                [(eq? value #f) (values #f 0)]
+                [else (error 'bind "internal error: bad value: ~e" value)]))
+        (define status
+          (A (SQLBindParameter stmt i ctype sqltype prec scale valbuf vallen lenbuf)))
+        (handle-status fsym status stmt)
+        (if valbuf (cons valbuf lenbuf) lenbuf))
 
       ;; do-load-number : (U Real (Cons Integer Nat)) Integer -> Any
       (define (do-load-number param typeid)
@@ -188,35 +193,30 @@
                                             (loop (add1 i) q)))
                                     null))]
                              [numeric-bytes
-                              (apply bytes-append (bytes prec* ex sign-byte) digits-bytess)]
-                             [numeric-buffer (copy-buffer numeric-bytes)])
+                              (apply bytes-append (bytes prec* ex sign-byte) digits-bytess)])
                         ;; Call bind first.
-                        (bind SQL_C_NUMERIC typeid numeric-buffer prec* ex)
+                        (bind SQL_C_NUMERIC typeid numeric-bytes prec* ex)
                         ;; Then set descriptor attributes.
                         (set-numeric-descriptors (A (SQLGetStmtAttr/HDesc stmt SQL_ATTR_APP_PARAM_DESC))
-                                                 i prec* ex numeric-buffer))]
+                                                 i prec* ex numeric-bytes))]
                      [else
                       (define s (scaled-integer->decimal-string ma ex))
-                      (bind SQL_C_CHAR typeid (copy-buffer (string->bytes/latin-1 s)) prec* ex)])]
+                      (bind SQL_C_CHAR typeid (string->bytes/latin-1 s) prec* ex)])]
               [(or (= typeid SQL_INTEGER)
                    (= typeid SQL_SMALLINT)
                    (= typeid SQL_TINYINT))
-               (bind SQL_C_LONG typeid
-                     (copy-buffer (integer->integer-bytes param 4 #t)))]
+               (bind SQL_C_LONG typeid (integer->integer-bytes param sizeof-SQLLONG #t))]
               [(or (= typeid SQL_BIGINT))
                ;; Oracle errors without diagnostic record (!!) on BIGINT param
                ;; -> http://stackoverflow.com/questions/338609
                (cond [(quirk-c-bigint-ok?)
-                      (bind SQL_C_SBIGINT typeid
-                            (copy-buffer (integer->integer-bytes param 8 #t)))]
+                      (bind SQL_C_SBIGINT typeid (integer->integer-bytes param 8 #t))]
                      [else
-                      (bind SQL_C_CHAR typeid
-                            (copy-buffer (string->bytes/latin-1 (number->string param))))])]
+                      (bind SQL_C_CHAR typeid (string->bytes/latin-1 (number->string param)))])]
               [(or (= typeid SQL_FLOAT)
                    (= typeid SQL_REAL)
                    (= typeid SQL_DOUBLE))
-               (bind SQL_C_DOUBLE typeid
-                     (copy-buffer (real->floating-point-bytes (exact->inexact param) 8)))]
+               (bind SQL_C_DOUBLE typeid (real->floating-point-bytes (exact->inexact param) 8))]
               ;; -- UNKNOWN --
               [(= typeid SQL_UNKNOWN_TYPE)
                (cond [(int32? param)
@@ -241,77 +241,68 @@
                         ((2) (cpstr2 param))
                         ((4) (cpstr4 param)))))
                ((utf-8)
-                (bind SQL_C_CHAR (typeid-or SQL_VARCHAR)
-                      (copy-buffer (string->bytes/utf-8 param))))
+                (bind SQL_C_CHAR (typeid-or SQL_VARCHAR) (string->bytes/utf-8 param)))
                ((latin-1)
                 (bind SQL_C_CHAR (typeid-or SQL_VARCHAR)
-                      (copy-buffer (string->bytes/latin-1 param (char->integer #\?))))))]
+                      (string->bytes/latin-1 param (char->integer #\?)))))]
             [(bytes? param)
-             (bind SQL_C_BINARY (typeid-or SQL_BINARY)
-                   (copy-buffer param))]
+             (bind SQL_C_BINARY (typeid-or SQL_BINARY) param (bytes-length param))]
             [(boolean? param)
              (bind SQL_C_LONG SQL_BIT
-                   (copy-buffer (int->buffer (if param 1 0))))]
+                   (integer->integer-bytes (if param 1 0) sizeof-SQLLONG #t))]
             [(sql-date? param)
              (bind SQL_C_TYPE_DATE SQL_TYPE_DATE
-                   (copy-buffer
-                    (let* ([x param]
-                           [y (sql-date-year x)]
-                           [m (sql-date-month x)]
-                           [d (sql-date-day x)])
-                      (bytes-append (integer->integer-bytes y 2 #t)
-                                    (integer->integer-bytes m 2 #f)
-                                    (integer->integer-bytes d 2 #f)))))]
+                   (let* ([x param]
+                          [y (sql-date-year x)]
+                          [m (sql-date-month x)]
+                          [d (sql-date-day x)])
+                     (bytes-append (integer->integer-bytes y 2 #t)
+                                   (integer->integer-bytes m 2 #f)
+                                   (integer->integer-bytes d 2 #f))))]
             [(sql-time? param)
              (cond [(= typeid SQL_SS_TIME2)
                     (bind SQL_C_BINARY typeid
-                          (copy-buffer
-                           (let* ([x param]
-                                  [h (sql-time-hour x)]
-                                  [m (sql-time-minute x)]
-                                  [s (sql-time-second x)]
-                                  [ns (sql-time-nanosecond x)])
-                             (bytes-append (integer->integer-bytes h 2 #f)
-                                           (integer->integer-bytes m 2 #f)
-                                           (integer->integer-bytes s 2 #f)
-                                           (integer->integer-bytes 0 2 #f)
-                                           (let ([ns (* 100 (quotient ns 100))])
-                                             (integer->integer-bytes ns 4 #f)))))
+                          (let* ([x param]
+                                 [h (sql-time-hour x)]
+                                 [m (sql-time-minute x)]
+                                 [s (sql-time-second x)]
+                                 [ns (sql-time-nanosecond x)])
+                            (bytes-append (integer->integer-bytes h 2 #f)
+                                          (integer->integer-bytes m 2 #f)
+                                          (integer->integer-bytes s 2 #f)
+                                          (integer->integer-bytes 0 2 #f)
+                                          (let ([ns (* 100 (quotient ns 100))])
+                                            (integer->integer-bytes ns 4 #f))))
                           12 7)]
                    [else
                     (bind SQL_C_TYPE_TIME SQL_TYPE_TIME
-                          (copy-buffer
-                           (let* ([x param]
-                                  [h (sql-time-hour x)]
-                                  [m (sql-time-minute x)]
-                                  [s (sql-time-second x)])
-                             (bytes-append (integer->integer-bytes h 2 #f)
-                                           (integer->integer-bytes m 2 #f)
-                                           (integer->integer-bytes s 2 #f)))))]
-                   )]
+                          (let* ([x param]
+                                 [h (sql-time-hour x)]
+                                 [m (sql-time-minute x)]
+                                 [s (sql-time-second x)])
+                            (bytes-append (integer->integer-bytes h 2 #f)
+                                          (integer->integer-bytes m 2 #f)
+                                          (integer->integer-bytes s 2 #f))))])]
             [(sql-time? param)
              (bind SQL_C_TYPE_TIME SQL_TYPE_TIME
-                   (copy-buffer
-                    (let* ([x param]
-                           [h (sql-time-hour x)]
-                           [m (sql-time-minute x)]
-                           [s (sql-time-second x)])
-                      (bytes-append (integer->integer-bytes h 2 #f)
-                                    (integer->integer-bytes m 2 #f)
-                                    (integer->integer-bytes s 2 #f)))))]
+                   (let* ([x param]
+                          [h (sql-time-hour x)]
+                          [m (sql-time-minute x)]
+                          [s (sql-time-second x)])
+                     (bytes-append (integer->integer-bytes h 2 #f)
+                                   (integer->integer-bytes m 2 #f)
+                                   (integer->integer-bytes s 2 #f))))]
             [(sql-timestamp? param)
-             (bind SQL_C_TYPE_TIMESTAMP
-                   (typeid-or SQL_TYPE_TIMESTAMP)
-                   (copy-buffer
-                    (let ([x param])
-                      (bytes-append
-                       (integer->integer-bytes (sql-timestamp-year x) 2 #f)
-                       (integer->integer-bytes (sql-timestamp-month x) 2 #f)
-                       (integer->integer-bytes (sql-timestamp-day x) 2 #f)
-                       (integer->integer-bytes (sql-timestamp-hour x) 2 #f)
-                       (integer->integer-bytes (sql-timestamp-minute x) 2 #f)
-                       (integer->integer-bytes (sql-timestamp-second x) 2 #f)
-                       (integer->integer-bytes (sql-timestamp-nanosecond x) 4 #f)))))]
+             (bind SQL_C_TYPE_TIMESTAMP (typeid-or SQL_TYPE_TIMESTAMP)
+                   (let ([x param])
+                     (bytes-append
+                      (integer->integer-bytes (sql-timestamp-year x) 2 #f)
+                      (integer->integer-bytes (sql-timestamp-month x) 2 #f)
+                      (integer->integer-bytes (sql-timestamp-day x) 2 #f)
+                      (integer->integer-bytes (sql-timestamp-hour x) 2 #f)
+                      (integer->integer-bytes (sql-timestamp-minute x) 2 #f)
+                      (integer->integer-bytes (sql-timestamp-second x) 2 #f)
+                      (integer->integer-bytes (sql-timestamp-nanosecond x) 4 #f))))]
             [(sql-null? param)
              (bind SQL_C_CHAR SQL_VARCHAR #f)]
             [else (error/internal* fsym "cannot convert given value to SQL type"
