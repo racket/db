@@ -121,7 +121,7 @@
                            [param-typeid (in-list (send pst get-param-typeids))])
                   (load-param fsym db stmt i param param-typeid))])
           (handle-status fsym (A (SQLExecute stmt)) stmt)
-          (strong-void param-bufs))
+          (void/reference-sink param-bufs))
         (define result-dvecs (send pst get-result-dvecs))
         (set-result-descriptors stmt result-dvecs)
         (define rows

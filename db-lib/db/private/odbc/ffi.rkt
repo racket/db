@@ -101,12 +101,6 @@
 
 ;; ========================================
 
-;; Used in connection.rkt; silly hack to keep optimizer from eliminating ref to
-;; things that shouldn't be GC'd. Depends on no cross-module inlining.
-(define (strong-void x) (void))
-
-;; ========================================
-
 #|
 Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
 |#
