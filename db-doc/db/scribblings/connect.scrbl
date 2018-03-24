@@ -309,12 +309,22 @@ Reports whether the SQLite native library is found, in which case
   attempts to determine and enforce specific types for query
   parameters. See @secref["odbc-types"] for more details.
 
-  By default, connections use ODBC's @tt{SQL_C_WCHAR}-based character
-  encoding (as UTF-16) to send and receive Unicode character
-  data. Unfortunately, some drivers' support for this method is
-  buggy. To use @tt{SQL_C_CHAR} instead, set @racket[character-mode]
-  to @racket['utf-8] or @racket['latin-1], depending on which encoding
-  the driver uses.
+  The @racket[character-mode] argument controls the handling of
+  character data; the following values are supported:
+
+  @itemlist[
+
+  @item{@racket['wchar] (the default) -- use @tt{SQL_C_WCHAR} and
+  treat the data as UTF-16 (or UTF-32/UCS-4 when the driver manager is
+  iODBC)}
+
+  @item{@racket['utf-8] -- use @tt{SQL_C_CHAR} and treat the data as
+  UTF-8}
+
+  @item{@racket['latin-1] -- use @tt{SQL_C_CHAR} and treat the data as
+  Latin-1. Characters not in Latin-1 are replaced with @racket[#\?].}
+
+  ]
 
   The @racket[quirks] argument represents a list of flags to modify
   the behavior of the connection. The following quirks are currently
