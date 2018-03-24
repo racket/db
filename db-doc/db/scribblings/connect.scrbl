@@ -336,6 +336,8 @@ Reports whether the SQLite native library is found, in which case
   proxy is returned; see @secref["ffi-concurrency"].
 
   If the connection cannot be made, an exception is raised.
+
+  @history[#:changed "1.3" @elem{Added @racket[#:quirks] argument.}]
 }
 
 @defproc[(odbc-driver-connect [connection-string string?]
@@ -359,6 +361,8 @@ Reports whether the SQLite native library is found, in which case
   driver. The other arguments are the same as in @racket[odbc-connect].
 
   If the connection cannot be made, an exception is raised.
+
+  @history[#:changed "1.3" @elem{Added @racket[#:quirks] argument.}]
 }
 
 @defproc[(odbc-data-sources)
