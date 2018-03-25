@@ -25,32 +25,6 @@
 (define _sqluinteger _uint)
 (define _sqlreturn _sqlsmallint)
 
-(define-ffi-definer define-mz #f)
-
-(define-mz scheme_utf16_to_ucs4
-  (_fun (src srcstart srcend) ::
-        (src : _bytes)
-        (srcstart : _intptr)
-        (srcend : _intptr)
-        (_pointer = #f)   ;; No buffer so it'll allocate for us.
-        (_intptr = 0)
-        (clen : (_ptr o _intptr))
-        (_intptr = 0)
-        -> (out : _gcpointer)
-        -> (values out clen)))
-
-(define-mz scheme_ucs4_to_utf16
-  (_fun (src srcstart srcend) ::
-        (src : _string/ucs-4)
-        (srcstart : _intptr)
-        (srcend : _intptr)
-        (_pointer = #f)   ;; No buffer so it'll allocate for us.
-        (_intptr = 0)
-        (clen : (_ptr o _intptr))
-        (_intptr = 0)
-        -> (out : _gcpointer)
-        -> (values out clen)))
-
 ;; For dealing with param buffers, which must not be moved by GC
 
 ;; bytes->non-moving-pointer : Bytes -> NonMovingPointer
@@ -63,30 +37,40 @@
 
 ;; cpstr{2,4} : String -> Bytes
 ;; Converts string to utf16/ucs4 (platform-endian) bytes.
-(define (cpstr2 str)
-  (let-values ([(shorts slen) (scheme_ucs4_to_utf16 str 0 (string-length str))])
-    (define blen (* 2 slen))
-    (define bs (make-bytes blen))
-    (memcpy bs shorts blen)
-    bs))
-(define (cpstr4 str)
-  (define blen (* 4 (string-length str)))
-  (define bs (make-bytes blen))
-  (memcpy bs (cast str _string/ucs-4 _gcpointer) blen)
-  bs)
+(define (cpstr2 s)
+  (string->bytes* s "platform-UTF-16" "platform-UTF-8"))
+(define (cpstr4 s)
+  (string->bytes* s (if (system-big-endian?) "UTF-32BE" "UTF-32LE") "UTF-8"))
 
 ;; mkstr{2,4} : Bytes Nat _ -> String
 ;; Converts utf16/ucs4 (platform-endian) to string.
-(define (mkstr2 buf len fresh?)
-  (let-values ([(chars clen) (scheme_utf16_to_ucs4 buf 0 (quotient len 2))])
-    (define s (make-string clen))
-    (memcpy (cast s _string/ucs-4 _gcpointer) chars clen _uint32)
-    s))
-(define (mkstr4 buf len fresh?)
-  (define slen (quotient len 4))
-  (define s (make-string slen))
-  (memcpy (cast s _string/ucs-4 _gcpointer) buf slen _uint32)
-  s)
+(define (mkstr2 buf [len (bytes-length buf)] [fresh? #f])
+  (bytes->string* buf len "platform-UTF-16" "platform-UTF-8"))
+(define (mkstr4 buf [len (bytes-length buf)] [fresh? #f])
+  (bytes->string* buf len (if (system-big-endian?) "UTF-32BE" "UTF-32LE") "UTF-8"))
+
+;; bytes->string* : Bytes String -> String
+(define (bytes->string* b len benc [senc "UTF-8"])
+  (define conv (bytes-open-converter benc senc))
+  (define-values (b* nconv status) (bytes-convert conv b 0 len))
+  (bytes-close-converter conv)
+  (case status
+    [(complete)
+     (bytes->string/utf-8 b*)]
+    [else
+     (error 'bytes->string* "invalid ~a encoding\n  bytes: ~e" b)]))
+
+;; string->bytes* : String String -> Bytes
+(define (string->bytes* s benc [senc "UTF-8"])
+  (define b (string->bytes/utf-8 s))
+  (define conv (bytes-open-converter senc benc))
+  (define-values (b* nconv status) (bytes-convert conv b))
+  (bytes-close-converter conv)
+  (case status
+    [(complete)
+     b*]
+    [else
+     (error 'string->bytes* "unable to convert to ~a\n  string: ~e" s)]))
 
 ;; ========================================
 
