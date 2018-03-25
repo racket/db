@@ -13,11 +13,7 @@
                     (combine-in "db/connection.rkt"
                                 "db/query.rkt"
                                 "db/sql-types.rkt"
-                                "db/concurrent.rkt"))
-         (prefix-in gen-
-                    (combine-in "gen/misc.rkt"
-                                "gen/sql-types.rkt"
-                                "gen/query.rkt")))
+                                "db/concurrent.rkt")))
 (provide (all-defined-out))
 
 #|
@@ -25,9 +21,14 @@
 RUNNING THE TESTS
 -----------------
 
+0) To run the generic tests (ie, those that don't require a db
+connection):
+
+  raco test -c tests/db/gen
+
 1) Default test configuration.
 
-To run the default tests (ie, the generic tests and sqlite3 tests),
+To run the default tests (ie, the sqlite3 tests),
 simply execute this file with no arguments:
 
   racket -l tests/db/all-tests
@@ -200,13 +201,6 @@ Testing profiles are flattened, not hierarchical.
               (list (list "sqlite3, memory, #:use-place=#t" (specialize-test sqlite/p-unit)))
               null)))
 
-(define generic-tests
-  (list (list "generic tests (no db)"
-              (make-test-suite "Generic tests (no db)"
-                               (list gen-misc:test
-                                     gen-sql-types:test
-                                     gen-query:test)))))
-
 ;; ----
 
 (define (make-all-tests dbconfs)
@@ -223,28 +217,20 @@ Testing profiles are flattened, not hierarchical.
 ;; ----------------------------------------
 
 (define gui? #f)
-(define include-generic? #f)
 (define include-sqlite? #f)
-
-;; If no labels given, run generic tests. If labels given, run generic
-;; tests only if -g option given.
 
 (command-line
  #:once-each
  [("--gui") "Run tests in RackUnit GUI" (set! gui? #t)]
  [("-k" "--killsafe") "Wrap with kill-safe-connection" (set! kill-safe? #t)]
- [("-g" "--generic") "Run generic tests" (set! include-generic? #t)]
  [("-s" "--sqlite3") "Run sqlite3 in-memory db tests" (set! include-sqlite? #t)]
  [("-f" "--config-file") file  "Use configuration file" (pref-file file)]
  #:args labels
  (let* ([no-labels?
-         (not (or include-generic? include-sqlite? (pair? labels)))]
+         (not (or include-sqlite? (pair? labels)))]
         [tests ;; (listof (cons string (listof test-suite)))
          (append (cond [(or include-sqlite? no-labels?)
                         sqlite-tests]
-                       [else null])
-                 (cond [(or include-generic? no-labels?)
-                        generic-tests]
                        [else null])
                  (for/list ([label labels])
                    (cons label (make-all-tests (get-dbconf (string->symbol label))))))])
