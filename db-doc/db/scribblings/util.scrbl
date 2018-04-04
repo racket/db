@@ -6,7 +6,8 @@
           racket/runtime-path
           "config.rkt"
           (for-label db db/util/datetime db/util/geometry db/util/postgresql
-                     db/util/testing db/util/cassandra))
+                     db/util/testing db/util/cassandra
+                     db/unsafe/sqlite3))
 
 @(define-runtime-path log-file "log-for-util.rktd")
 @(define the-eval (make-pg-eval log-file #t))
@@ -304,6 +305,84 @@ before sleeping, to better simulate the effect of a long-running FFI
 call (see @secref["ffi-concurrency"]). Even so, it may not accurately
 simulate an ODBC connection that internally uses cursors to fetch data
 on demand, as each fetch would introduce additional latency.
+}
+
+@;{========================================}
+
+@section[#:tag "unsafe-sqlite3"]{Unsafe SQLite3 Extensions}
+
+The procedures documented in this section are @emph{unsafe}.
+
+In the functions below, the connection argument must be a SQLite
+connection; otherwise, an exception is raised.
+
+@defmodule[db/unsafe/sqlite3]{
+@history[#:added "1.4"]}
+
+@defproc[(sqlite3-load-extension [c connection?]
+                                 [extension-path path-string?])
+         void?]{
+
+Load the @hyperlink["https://www.sqlite.org/loadext.html"]{extension
+library} at @racket[extension-path] for use by the connection
+@racket[c]. If the current security guard does not grant read and
+execute permission on @racket[extension-path], an exception is raised.
+
+@;{ cf https://www.sqlite.org/lang_corefunc.html#load_extension }
+}
+
+@defproc[(sqlite3-create-function [c connection?]
+                                  [name (or/c string? symbol?)]
+                                  [arity (or/c exact-nonnegative-integer? #f)]
+                                  [func procedure?])
+         void?]{
+
+Creates a normal function named @racket[name] available to the
+connection @racket[c]. The @racket[arity] argument determines the
+legal number of arguments; if @racket[arity] is @racket[#f] then any
+number of arguments is allowed (up to the system-determined
+maximum). Different implementations can be provided for different
+arities of the same name.
+}
+
+@defproc[(sqlite3-create-aggregate [c connection?]
+                                   [name (or/c string? symbol?)]
+                                   [arity (or/c exact-nonnegative-integer? #f)]
+                                   [init-acc any/c]
+                                   [step-func procedure?]
+                                   [final-func procedure?])
+         void?]{
+
+Like @racket[sqlite3-create-aggregate], but creates an aggregate
+function. The implementation of an aggregate function are like the
+arguments of @racket[fold]:
+
+@itemlist[
+
+@item{@racket[init-acc] is the initial accumulator value.}
+
+@item{@racket[step-func] receives @racket[arity]+1 arguments: the
+current accumulator value, followed by the arguments of the current
+``step''; the function's result becomes the accumulator value for the
+next step. The step arguments are SQLite values; the accumulator
+argument and result can be arbitrary Racket values.}
+
+@item{@racket[final-func] receives one argument: the final accumulator
+value; the function produces the result of the aggregate function,
+which must be a SQLite value.}
+
+]
+
+The following relationship roughly holds:
+
+@racketblock[
+(begin (sqlite3-create-aggregate c "agg" 1 init-acc step-func final-func)
+       (query-value c "select agg(expr) from table"))
+= (final-func
+    (for/fold ([accum init-acc])
+              ([v (in-query c "select expr from table")])
+      (step-func accum v)))
+]
 }
 
 @(close-eval the-eval)
