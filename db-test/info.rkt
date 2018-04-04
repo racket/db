@@ -1,11 +1,9 @@
 #lang info
 
-(define version "1.3")
-
 (define collection 'multi)
 
 (define deps '("base"
-               ["db-lib" "1.3"]
+               "db-lib"
                "rackunit-lib"
                "web-server-lib"))
 
