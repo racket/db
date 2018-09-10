@@ -99,7 +99,8 @@ server -> client: (or (list boolean 'values result ...)
                  (send connection disconnect)
                  (set! connection #f)]
                 [(list 'free-statement pstmt-index need-lock?)
-                 (send connection free-statement (hash-ref table pstmt-index) need-lock?)
+                 ;; The client is done with the stmt, but this side's connection might still
+                 ;; have references (eg, statement-cache). So just remove from table.
                  (hash-remove! table pstmt-index)]
                 [(list 'query fsym stmt cursor?)
                  (send connection query fsym (sexpr->statement stmt) cursor?)]
