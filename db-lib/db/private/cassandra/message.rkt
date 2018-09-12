@@ -91,7 +91,7 @@
   (bytes->string/utf-8 bs))
 
 (define (write-Symbol out s)
-  (write-String (symbol->string s)))
+  (write-String out (symbol->string s)))
 (define (read-Symbol in)
   (string->symbol (read-String in)))
 
@@ -350,7 +350,7 @@
         (define result-info (read-Metadata in #f))
         (Result:Prepared 'PREPARED stmt param-info result-info)]
        [(#x0005)
-        (read-SchemaChange 'SCHEMA_CHANGE in 'result)])]
+        (read-SchemaChange in 'result)])]
     [(EVENT)
      (define kind (read-Symbol in))
      (case kind
@@ -385,7 +385,7 @@
       [(KEYSPACE) (read-String in)]
       [(TABLE TYPE) (list (read-String in) (read-String in))]))
   (case make
-    [(result) (Result:SchemaChange type target details)]
+    [(result) (Result:SchemaChange 'SCHEMA_CHANGE type target details)]
     [(event) (Event:SchemaChange 'SCHEMA_CHANGE type target details)]))
 
 (define (read-Metadata in detailed?)
@@ -578,7 +578,7 @@
       [(or 'uuid 'timeuuid)
        (unless (uuid? v) (err))
        (define out (open-output-bytes))
-       (write-UUID v)
+       (write-UUID out v)
        (get-output-bytes out)]
       ['varint
        (unless (exact-integer? v) (err))

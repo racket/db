@@ -167,7 +167,7 @@
         ((2) (make-AuthenticationKerberosV5))
         ((3) (make-AuthenticationCleartextPassword))
         ((4) (let ([salt (io:read-bytes-as-bytes p 2)])
-               (make-AuthenticationCleartextPassword salt)))
+               (make-AuthenticationCryptPassword salt)))
         ((5) (let ([salt (io:read-bytes-as-bytes p 4)])
                (make-AuthenticationMD5Password salt)))
         ((6) (make-AuthenticationSCMCredential))
