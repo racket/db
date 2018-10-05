@@ -104,6 +104,10 @@
 (define (io:read-int16 port)
   (integer-bytes->integer (read-bytes 2 port) #t #t))
 
+;; read-uint16 : port -> integer
+(define (io:read-uint16 port)
+  (integer-bytes->integer (read-bytes 2 port) #f #t))
+
 ;; read-int32 : port -> integer
 (define (io:read-int32 port)
   (integer-bytes->integer (read-bytes 4 port) #t #t))
@@ -368,7 +372,7 @@
 (define (parse:ParameterDescription p)
   (with-length-in p #\t
     (let* ([type-oids
-            (for/list ([i (in-range (io:read-int16 p))])
+            (for/list ([i (in-range (io:read-uint16 p))])
               (io:read-int32 p))])
       (make-ParameterDescription type-oids))))
 
