@@ -853,5 +853,11 @@ property value is applied to the struct instance and a connection, and
 it must return a @tech{statement}.
 }
 
+@defproc[(prop:statement? [v any/c]) boolean?]{
+
+Returns @racket[#t] if @racket[v] is an instance of a struct
+implementing @racket[prop:statement], @racket[#f] otherwise.
+
+@history[#:added "1.5"]}
 
 @(close-eval the-eval)

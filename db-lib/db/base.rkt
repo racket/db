@@ -225,6 +225,7 @@
        (#:value-mode group-mode/c)
        dict?)]
  )
+(provide prop:statement?)
 
 ;; ============================================================
 
