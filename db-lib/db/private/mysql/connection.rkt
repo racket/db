@@ -312,7 +312,8 @@
       (cond [(statement-binding? stmt)
              (let* ([pst (statement-binding-pst stmt)]
                     [id (send pst get-handle)]
-                    [params (statement-binding-params stmt)]
+                    [params (map (lambda (p) (if (sql-null? p) '(null . #f) p))
+                                 (statement-binding-params stmt))]
                     [param-count (length params)]
                     [null-map (for/list ([p (in-list params)]) (eq? (car p) 'null))]
                     [flags (if cursor? '(cursor/read-only) '())])

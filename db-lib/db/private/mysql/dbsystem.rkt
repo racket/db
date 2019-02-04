@@ -73,10 +73,9 @@
 ;;   long-data are replaced by #f.
 
 ;; check-param : Symbol Any -> CheckParam-v1
+;; Note: not applied to sql-null parameters.
 (define (check-param fsym param)
-  (cond [(sql-null? param)
-         (cons 'null #f)]
-        [(string? param)
+  (cond [(string? param)
          (cons 'var-string (string->bytes/utf-8 param))]
         [(bytes? param)
          (cons 'blob param)]
