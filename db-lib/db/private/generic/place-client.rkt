@@ -6,6 +6,7 @@
          racket/serialize
          racket/runtime-path
          (for-syntax (only-in racket/base quote))
+         ffi/unsafe
          ffi/unsafe/atomic
          db/private/generic/interfaces
          db/private/generic/common
@@ -75,12 +76,15 @@
     (define/public (get-base) this)
 
     (define/public (query who stmt cursor?)
-      (call 'query who who
-            (match stmt
-              [(? string?) (list 'string stmt)]
-              [(statement-binding pst params)
-               (list 'statement-binding (send pst get-handle) params)])
-            cursor?))
+      (begin0 (call 'query who who
+                    (match stmt
+                      [(? string?) (list 'string stmt)]
+                      [(statement-binding pst params)
+                       (list 'statement-binding (send pst get-handle) params)])
+                    cursor?)
+        ;; If stmt contains a prepared statement, it must not be GC'd before
+        ;; the query is actually executed.
+        (void/reference-sink stmt)))
     (define/public (prepare who stmt close-on-exec?)
       (call 'prepare who who stmt close-on-exec?))
     (define/public (fetch/cursor who cursor fetch-size)
