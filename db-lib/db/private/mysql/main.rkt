@@ -16,7 +16,7 @@
                        #:server [server #f]
                        #:port [port #f]
                        #:socket [socket #f]
-                       #:allow-cleartext-password? [allow-cleartext-password? #f]
+                       #:allow-cleartext-password? [allow-cleartext-password? 'local]
                        #:ssl [ssl 'no]
                        #:ssl-context [ssl-context
                                       (case ssl

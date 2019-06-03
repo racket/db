@@ -37,7 +37,7 @@ Base connections are made using the following functions.
                   [#:socket socket (or/c path-string? 'guess #f) #f]
                   [#:password password (or/c string? #f) #f]
                   [#:allow-cleartext-password? allow-cleartext-password?
-                   boolean? #f]
+                   (or/c boolean? 'local) 'local]
                   [#:ssl ssl (or/c 'yes 'optional 'no) 'no]
                   [#:ssl-context ssl-context ssl-client-context?
                    (ssl-make-client-context)]
@@ -65,7 +65,6 @@ Base connections are made using the following functions.
   also @secref{connecting-to-server} for notes on socket
   paths. Supplying a @racket[socket] argument of @racket['guess] is
   the same as supplying @racket[(postgresql-guess-socket-path)].
-  Sockets are only available under Linux (x86) and Mac OS.
 
   If the server requests password authentication, the
   @racket[password] argument must be present; otherwise an exception
@@ -74,7 +73,9 @@ Base connections are made using the following functions.
   connection normally only sends password hashes (using the @tt{md5}
   or @tt{scram-sha-256} authentication methods). If the server
   requests a password sent as cleartext (un-hashed), the connection is
-  aborted unless @racket[allow-cleartext-password?] is true.
+  aborted unless @racket[allow-cleartext-password?] is @racket[#t], or
+  unless @racket[allow-cleartext-password?] is @racket['local] and the
+  connection is to @racket["localhost"] or a local socket.
 
   If the @racket[ssl] argument is either @racket['yes] or
   @racket['optional], the connection attempts to negotiate an SSL
@@ -143,7 +144,8 @@ Base connections are made using the following functions.
                   [#:server server string? "localhost"]
                   [#:port port exact-positive-integer? 3306]
                   [#:socket socket (or/c path-string? #f) #f]
-                  [#:allow-cleartext-password? allow-cleartext-password? boolean? #f]
+                  [#:allow-cleartext-password? allow-cleartext-password?
+                   (or/c boolean? 'local) 'local]
                   [#:ssl ssl (or/c 'yes 'optional 'no) 'no]
                   [#:ssl-context ssl-context ssl-client-context?
                    (ssl-make-client-context)]

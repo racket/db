@@ -262,7 +262,10 @@
                          ";\n slow path not supported for TCP without TLS"
                          ";\n and the server rejected the fast path")]
                  [else ;; unix domain socket or TCP with TLS => "secure", don't encrypt password
-                  (unless allow-cleartext-password?
+                  (unless (or (eq? allow-cleartext-password? #t)
+                              (and (eq? allow-cleartext-password? 'local)
+                                   (or (eq? transport 'socket)
+                                       (equal? hostname "localhost"))))
                     (error 'mysql-connect "caching_sha2_password authentication failed~a~a"
                            ";\n refusing to send password because `allow-cleartext-password?` is #f"
                            ";\n and the server rejected the fast path"))

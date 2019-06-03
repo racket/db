@@ -16,7 +16,7 @@
                             #:server [server #f]
                             #:port [port #f]
                             #:socket [socket #f]
-                            #:allow-cleartext-password? [allow-cleartext-password? #f]
+                            #:allow-cleartext-password? [allow-cleartext-password? 'local]
                             #:ssl [ssl 'no]
                             #:ssl-context [ssl-context
                                            (case ssl
@@ -44,14 +44,19 @@
                   (notification-handler notification-handler)
                   (allow-cleartext-password? allow-cleartext-password?))])
       (when debug? (send c debug #t))
-      (let-values ([(in out)
-                    (cond [socket (unix-socket-connect socket)]
-                          [else (let ([server (or server "localhost")]
-                                      [port (or port 5432)])
-                                  (tcp-connect server port))])])
-        (send c attach-to-ports in out ssl ssl-context (and (not socket) (or server "localhost")))
-        (send c start-connection-protocol database user password)
-        c))))
+      (define local?
+        (cond [socket
+               (define-values (in out) (unix-socket-connect socket))
+               (send c attach-to-ports in out ssl ssl-context #f)
+               #t]
+              [else
+               (let ([server (or server "localhost")]
+                     [port (or port 5432)])
+                 (define-values (in out) (tcp-connect server port))
+                 (send c attach-to-ports in out ssl ssl-context server)
+                 (equal? server "localhost"))]))
+      (send c start-connection-protocol database user password local?)
+      c)))
 
 (define socket-paths
   (case (system-type)

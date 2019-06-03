@@ -221,8 +221,8 @@
       (set! inport in)
       (set! outport out))
 
-    ;; start-connection-protocol : string string string/#f -> void
-    (define/public (start-connection-protocol dbname username password)
+    ;; start-connection-protocol : string string string/#f boolean -> void
+    (define/public (start-connection-protocol dbname username password local?)
       (call-with-lock 'postgresql-connect
         (lambda ()
           (send-message
@@ -231,10 +231,10 @@
                   (cons "database" dbname)
                   (cons "client_encoding" "UTF8")
                   (cons "DateStyle" "ISO, MDY"))))
-          (connect:expect-auth username password))))
+          (connect:expect-auth username password local?))))
 
     ;; connect:expect-auth : string/#f -> ConnectionResult
-    (define/private (connect:expect-auth username password)
+    (define/private (connect:expect-auth username password local?)
       (let ([r (recv-message 'postgresql-connect)])
         (match r
           [(struct AuthenticationOk ())
@@ -242,17 +242,19 @@
           [(struct AuthenticationCleartextPassword ())
            (unless (string? password)
              (error/need-password 'postgresql-connect))
-           (unless allow-cleartext-password?
-             (error/no-support 'postgresql-connect "cleartext password"))
+           (unless (or (eq? allow-cleartext-password? #t)
+                       (and (eq? allow-cleartext-password? 'local) local?))
+             (error 'postgresql-connect "authentication failed~a"
+                    ";\n refusing to send cleartext password (see `allow-cleartext-password?`)"))
            (send-message (make-PasswordMessage password))
-           (connect:expect-auth username password)]
+           (connect:expect-auth username password local?)]
           [(struct AuthenticationCryptPassword (salt))
            (error/no-support 'postgresql-connect "crypt()-encrypted password")]
           [(struct AuthenticationMD5Password (salt))
            (unless password
              (error/need-password 'postgresql-connect))
            (send-message (make-PasswordMessage (md5-password username password salt)))
-           (connect:expect-auth username password)]
+           (connect:expect-auth username password local?)]
           [(struct AuthenticationKerberosV5 ())
            (error/no-support 'postgresql-connect "KerberosV5 authentication")]
           [(struct AuthenticationSCMCredential ())
@@ -264,7 +266,7 @@
                   (send-message (make-SASLInitialResponse
                                  "SCRAM-SHA-256" (sasl-next-message scram)))
                   (connect:auth/scram scram)
-                  (connect:expect-auth username password)]
+                  (connect:expect-auth username password local?)]
                  [else
                   (error/no-support 'postgresql-connect
                                     (format "SASL authentication ~a" methods))])]
