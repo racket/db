@@ -143,6 +143,8 @@
            (advance 'prep-ok)]
           [(? eof-packet?)
            (advance 'field 'data 'binary-data)]
+          [(auth-more-data-packet _)
+           (advance)]
           [(struct unknown-packet (expected contents))
            (error/comm fsym expected)]
           [else
@@ -185,54 +187,90 @@
       (set! outport out))
 
     ;; start-connection-protocol : string/#f string string/#f -> void
-    (define/public (start-connection-protocol dbname username password ssl ssl-context hostname)
-      (fresh-exchange)
-      (let ([r (recv 'mysql-connect 'handshake)])
-        (match r
-          [(struct handshake-packet (pver sver tid scramble capabilities charset status auth))
-           (check-required-flags capabilities)
-           (unless (member auth '("mysql_native_password" #f))
-             (error* 'mysql-connect "back end requested unsupported authentication plugin"
-                     '("plugin" value) auth))
-           (define do-ssl?
-             (and (case ssl ((yes optional) #t) ((no) #f))
-                  (memq 'ssl capabilities)))
-           (when (and (eq? ssl 'yes) (not do-ssl?))
-             (error 'mysql-connect "back end refused SSL connection"))
-           (define wanted-capabilities (desired-capabilities capabilities do-ssl? dbname))
-           (when do-ssl?
-             (send-message (make-abbrev-client-auth-packet wanted-capabilities))
-             (let-values ([(sin sout)
-                           (ports->ssl-ports inport outport
-                                             #:hostname hostname
-                                             #:mode 'connect
-                                             #:context ssl-context
-                                             #:close-original? #t)])
-               (attach-to-ports sin sout)))
-           (authenticate wanted-capabilities username password dbname
-                         (or auth "mysql_native_password") scramble)]
-          [_ (error/comm 'mysql-connect "during authentication")])))
+    (define/public (start-connection-protocol dbname username password transport
+                                              ssl ssl-context hostname allow-cleartext-password?)
+      (define using-ssl? #f)  ;; boolean, mutated
 
-    (define/private (authenticate capabilities username password dbname auth-plugin scramble)
-      (let loop ([auth-plugin auth-plugin] [scramble scramble] [first? #t])
-        (define (auth data)
-          (if first?
-              (make-client-auth-packet capabilities max-allowed-packet 'utf8-general-ci
-                                       username data dbname auth-plugin)
-              (make-auth-followup-packet data)))
-        (cond [(equal? auth-plugin "mysql_native_password")
-               (send-message (auth (scramble-password scramble password)))]
-              [(equal? auth-plugin "mysql_old_password")
-               (send-message (auth (bytes-append (old-scramble-password scramble password)
-                                                 (bytes 0))))]
-              [else (error* 'mysql-connect "back end does not support authentication plugin"
-                            '("plugin" value) auth-plugin)])
+      (define (connect:begin)
+        (fresh-exchange)
+        (let ([r (recv 'mysql-connect 'handshake)])
+          (match r
+            [(handshake-packet pver sver tid scramble capabilities charset status auth)
+             (check-required-flags capabilities)
+             (define do-ssl?
+               (and (case ssl ((yes optional) #t) ((no) #f))
+                    (memq 'ssl capabilities)))
+             (when (and (eq? ssl 'yes) (not do-ssl?))
+               (error 'mysql-connect "back end refused SSL connection"))
+             (unless (member auth '("mysql_native_password" "caching_sha2_password" #f))
+               (error* 'mysql-connect "back end requested unsupported authentication plugin"
+                       '("plugin" value) auth))
+             (define wanted-capabilities (desired-capabilities capabilities do-ssl? dbname))
+             (when do-ssl? (connect:ssl wanted-capabilities))
+             (authenticate wanted-capabilities (or auth "mysql_native_password") scramble)]
+            [_ (error/comm 'mysql-connect "during authentication")])))
+
+      (define (connect:ssl wanted-capabilities)
+        (send-message (make-abbrev-client-auth-packet wanted-capabilities))
+        (define-values (sin sout)
+          (ports->ssl-ports inport outport
+                            #:hostname hostname
+                            #:mode 'connect
+                            #:context ssl-context
+                            #:close-original? #t))
+        (attach-to-ports sin sout)
+        (set! using-ssl? #t))
+
+      (define (authenticate capabilities auth-plugin scramble)
+        (let loop ([auth-plugin auth-plugin] [scramble scramble] [first? #t])
+          (define (auth data)
+            (if first?
+                (make-client-auth-packet capabilities max-allowed-packet 'utf8-general-ci
+                                         username data dbname auth-plugin)
+                (make-auth-followup-packet data)))
+          (cond [(equal? auth-plugin "mysql_native_password")
+                 (send-message (auth (scramble-password scramble password)))]
+                [(equal? auth-plugin "mysql_old_password")
+                 (send-message
+                  (auth (bytes-append (old-scramble-password scramble password) (bytes 0))))]
+                [(equal? auth-plugin "caching_sha2_password")
+                 (send-message (auth (sha256-scramble-password scramble password)))
+                 (auth:continue-caching-sha2 scramble)]
+                [else
+                 (error 'mysql-connect "back end requested unsupported authentication plugin\n  plugin: ~v"
+                        auth-plugin)])
+          (match (recv 'mysql-connect 'auth)
+            [(ok-packet _ _ status warnings message)
+             (after-connect)]
+            [(change-plugin-packet plugin data)
+             ;; if plugin = #f, means "mysql_old_password"
+             (loop (or plugin "mysql_old_password") (or data scramble) #f)])))
+
+      (define (auth:continue-caching-sha2 scramble)
         (match (recv 'mysql-connect 'auth)
-          [(struct ok-packet (_ _ status warnings message))
-           (after-connect)]
-          [(struct change-plugin-packet (plugin data))
-           ;; if plugin = #f, means "mysql_old_password"
-           (loop (or plugin "mysql_old_password") (or data scramble) #f)])))
+          [(auth-more-data-packet #"\3") ;; fast_auth_success
+           (void)]
+          [(auth-more-data-packet #"\4") ;; perform_full_authentication
+           (cond [(and (eq? transport 'tcp) (not using-ssl?))
+                  ;; The caching_sha2_password protocol says we should now
+                  ;; - (optionally) request the server's RSA public key, and then
+                  ;; - send the password encrypted with the public key (directly?!)
+                  ;; From the docs, it sounds like the public key is sent without a
+                  ;; certificate---that is, unauthenticated! So what's the point?
+                  ;; FIXME: add option to use existing (presumably trusted) public key?
+                  (error 'mysql-connect "caching_sha2_password authentication failed~a~a"
+                         ";\n slow path not supported for TCP without TLS"
+                         ";\n and the server rejected the fast path")]
+                 [else ;; unix domain socket or TCP with TLS => "secure", don't encrypt password
+                  (unless allow-cleartext-password?
+                    (error 'mysql-connect "caching_sha2_password authentication failed~a~a"
+                           ";\n refusing to send password because `allow-cleartext-password?` is #f"
+                           ";\n and the server rejected the fast path"))
+                  (send-message
+                   (auth-followup-packet (bytes-append (string->bytes/utf-8 password) #"\0")))])]
+          [else (error/comm 'mysql-connect "during authentication (caching_sha2_password)")]))
+
+      (connect:begin))
 
     (define/private (check-required-flags capabilities)
       (for-each (lambda (rf)
@@ -617,6 +655,16 @@
                     (bitwise-xor (bytes-ref a i) (bytes-ref b i)))
         (loop (add1 i))))
     c))
+
+;; =======================================
+
+(provide sha256-scramble-password)
+
+(define (sha256-scramble-password scramble password-str)
+  (define password (string->bytes/utf-8 password-str))
+  (define password-h (sha256-bytes password))
+  (define password-hh (sha256-bytes password-h))
+  (bytes-xor password-h (sha256-bytes (bytes-append password-hh scramble))))
 
 ;; =======================================
 

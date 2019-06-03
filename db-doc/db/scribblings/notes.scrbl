@@ -105,14 +105,38 @@ timestamps as text, so they received timestamps with adjusted time
 zones.)
 
 
-@section{MySQL Authentication}
+@section[#:tag "MySQL_Authentication"]{MySQL Authentication}
 
 As of version 5.5.7, MySQL supports
 @hyperlink["http://dev.mysql.com/doc/mysql-security-excerpt/5.5/en/pluggable-authentication.html"]{authentication
-plugins}. The only plugins currently supported by this library are
-@tt{mysql_native_password} (the default) and @tt{mysql_old_password},
-which corresponds to the password authentication mechanisms used since
-version 4.1 and before 4.1, respectively.
+plugins}. This library supports the following plugins:
+
+@itemlist[
+@item{@tt{caching_sha2_password}: the default since MySQL version 8.0}
+@item{@tt{mysql_native_password}: the default for MySQL versions since 4.1 and before 8.0}
+@item{@tt{mysql_old_password}: the default before MySQL version 4.1}
+]
+
+The @tt{caching_sha2_password} authentication plugin has two
+``paths''; a client always tries the fast path first, but the server
+may demand that it go through the slow path, based on the state of the
+server's authentication cache. The fast path uses a challenge-response
+protocol, but in the slow path the client simply sends the password to
+the server. This library refuses to send the password in the slow path
+unless @racket[mysql-connect] is called with
+@racket[#:allow-cleartext-password? #t]. You should not enable sending
+cleartext passwords unless you use a secure SSL context.
+
+@;{
+@racketblock[
+(define ssl-ctx
+  (parameterize ((ssl-default-verify-sources (list "/PATH/TO/ca.pem")))
+    (ssl-secure-client-context)))
+(mysql-connect .... #:ssl 'yes #:ssl-context ssl-ctx)
+]
+}
+
+@history[#:changed "1.6" @elem{Added support for @tt{caching_sha2_password} authentication.}]
 
 
 @section{MySQL @tt{CALL}ing Stored Procedures}

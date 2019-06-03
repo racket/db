@@ -13,6 +13,7 @@
         #:server (or/c string? #f)
         #:port (or/c exact-positive-integer? #f)
         #:socket (or/c path-string? 'guess #f)
+        #:allow-cleartext-password? boolean?
         #:ssl (or/c 'yes 'no 'optional)
         #:ssl-context ssl-client-context?
         #:notice-handler (or/c 'output 'error output-port? procedure?)

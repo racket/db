@@ -1,10 +1,10 @@
 #lang setup/infotab
 
-(define version "1.5")
+(define version "1.6")
 
 (define collection 'multi)
 (define deps '("srfi-lite-lib"
-               ["base" #:version "6.90.0.24"]
+               ["base" #:version "7.0.0.5"]
                "unix-socket-lib"
                "sasl-lib"))
 

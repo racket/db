@@ -143,6 +143,7 @@ Base connections are made using the following functions.
                   [#:server server string? "localhost"]
                   [#:port port exact-positive-integer? 3306]
                   [#:socket socket (or/c path-string? #f) #f]
+                  [#:allow-cleartext-password? allow-cleartext-password? boolean? #f]
                   [#:ssl ssl (or/c 'yes 'optional 'no) 'no]
                   [#:ssl-context ssl-context ssl-client-context?
                    (ssl-make-client-context)]
@@ -187,6 +188,9 @@ Base connections are made using the following functions.
                     #:user "me"
                     #:database "me")
      (new connection%)]]
+
+  @history[#:changed "1.6" @elem{Added the @racket[#:allow-cleartext-password?] argument; see
+  @secref["MySQL_Authentication"].}]
 }
 
 @defproc[(mysql-guess-socket-path)

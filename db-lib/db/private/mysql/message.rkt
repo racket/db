@@ -34,6 +34,7 @@ Based on protocol documentation here:
          (struct-out execute-packet)
          (struct-out fetch-packet)
          (struct-out unknown-packet)
+         (struct-out auth-more-data-packet)
 
          length-code->bytes
          binary-datum-size
@@ -337,6 +338,10 @@ computed string on the server can be. See also:
    contents)
   #:transparent)
 
+(define-struct auth-more-data-packet
+  (data)
+  #:transparent)
+
 ;; write-packet : Output-Port Packet Nat -> Nat
 ;; Returns next packet number (currently ignored)
 ;; Notes on fragmentation:
@@ -450,6 +455,7 @@ computed string on the server can be. See also:
                ((auth)
                 (case (peek-byte in)
                   ((#x00) (parse-ok-packet in len))
+                  ((#x01) (begin (read-byte in) (make-auth-more-data-packet (io:read-bytes-to-eof in))))
                   ((#xFE) (parse-change-plugin-packet in len))
                   (else (parse-unknown-packet in len "(expected authentication ok packet)"))))
                ((ok)

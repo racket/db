@@ -194,7 +194,7 @@ considered important.
 (define mysql-data-source
   (mk-specialized 'mysql-data-source 'mysql 0
                   '(#:user #:database #:password #:server #:port #:socket #:ssl
-                    #:notice-handler #:debug?)))
+                    #:allow-cleartext-password? #:notice-handler #:debug?)))
 
 (define cassandra-data-source
   (mk-specialized 'cassandra-data-source 'cassandra 0

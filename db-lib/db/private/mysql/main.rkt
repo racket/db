@@ -16,6 +16,7 @@
                        #:server [server #f]
                        #:port [port #f]
                        #:socket [socket #f]
+                       #:allow-cleartext-password? [allow-cleartext-password? #f]
                        #:ssl [ssl 'no]
                        #:ssl-context [ssl-context
                                       (case ssl
@@ -33,19 +34,22 @@
                 [else (make-print-notice notice-handler)])]
          [c (new connection% (notice-handler notice-handler))])
     (when debug? (send c debug #t))
-    (cond [socket
-           (let ([socket (if (eq? socket 'guess)
-                             (mysql-guess-socket-path)
-                             socket)])
-             (let-values ([(in out) (unix-socket-connect socket)])
-               (send c attach-to-ports in out)))]
-          [else
-           (let ([server (or server "localhost")]
-                 [port (or port 3306)])
-             (let-values ([(in out) (tcp-connect server port)])
-               (send c attach-to-ports in out)))])
-    (send c start-connection-protocol database user password ssl ssl-context
-          (and (not socket) (or server "localhost")))
+    (define transport
+      (cond [socket
+             (let ([socket (if (eq? socket 'guess)
+                               (mysql-guess-socket-path)
+                               socket)])
+               (let-values ([(in out) (unix-socket-connect socket)])
+                 (send c attach-to-ports in out)))
+             'socket]
+            [else
+             (let ([server (or server "localhost")]
+                   [port (or port 3306)])
+               (let-values ([(in out) (tcp-connect server port)])
+                 (send c attach-to-ports in out)))
+             'tcp]))
+    (send c start-connection-protocol database user password transport ssl ssl-context
+          (and (not socket) (or server "localhost")) allow-cleartext-password?)
     c))
 
 ;; make-print-notification : output-port -> number string -> void
