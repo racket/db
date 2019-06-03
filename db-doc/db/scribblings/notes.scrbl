@@ -115,6 +115,7 @@ plugins}. This library supports the following plugins:
 @item{@tt{caching_sha2_password}: the default since MySQL version 8.0}
 @item{@tt{mysql_native_password}: the default for MySQL versions since 4.1 and before 8.0}
 @item{@tt{mysql_old_password}: the default before MySQL version 4.1}
+@item{@tt{mysql_clear_password}: used by LDAP and PAM authentication}
 ]
 
 The @tt{caching_sha2_password} authentication plugin has two

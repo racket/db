@@ -233,6 +233,14 @@
                 [(equal? auth-plugin "mysql_old_password")
                  (send-message
                   (auth (bytes-append (old-scramble-password scramble password) (bytes 0))))]
+                [(equal? auth-plugin "mysql_clear_password")
+                 ;; Note: untested, since the server-side authentication plugins that use
+                 ;; mysql_clear_password on the client seem to be only available for commercial
+                 ;; versions of MySQL.
+                 (unless (check-allow-cleartext-password?)
+                   (error 'mysql-connect "mysql_clear_password authentication failed~a~a"
+                          ";\n refusing to send password (see `allow-cleartext-password?`)"))
+                 (send-message (auth (bytes-append (string->bytes/utf-8 password #"\0"))))]
                 [(equal? auth-plugin "caching_sha2_password")
                  (send-message (auth (sha256-scramble-password scramble password)))
                  (auth:continue-caching-sha2 scramble)]
@@ -262,16 +270,19 @@
                          ";\n slow path not supported for TCP without TLS"
                          ";\n and the server rejected the fast path")]
                  [else ;; unix domain socket or TCP with TLS => "secure", don't encrypt password
-                  (unless (or (eq? allow-cleartext-password? #t)
-                              (and (eq? allow-cleartext-password? 'local)
-                                   (or (eq? transport 'socket)
-                                       (equal? hostname "localhost"))))
+                  (unless (check-allow-cleartext-password?)
                     (error 'mysql-connect "caching_sha2_password authentication failed~a~a"
-                           ";\n refusing to send password because `allow-cleartext-password?` is #f"
+                           ";\n refusing to send password (see `allow-cleartext-password?`)"
                            ";\n and the server rejected the fast path"))
                   (send-message
                    (auth-followup-packet (bytes-append (string->bytes/utf-8 password) #"\0")))])]
           [else (error/comm 'mysql-connect "during authentication (caching_sha2_password)")]))
+
+      (define (check-allow-cleartext-password?)
+        (or (eq? allow-cleartext-password? #t)
+            (and (eq? allow-cleartext-password? 'local)
+                 (or (eq? transport 'socket)
+                     (equal? hostname "localhost")))))
 
       (connect:begin))
 
