@@ -277,13 +277,11 @@ in embedded text.
 
 @subsection[#:tag "dbsec-connect"]{Making Database Connections Securely}
 
-When connecting to a database server over a network, use TLS/SSL and take the
-steps necessary to use it securely. Without TLS, your data and connection
-credentials are exposed to any attackers with access to the network. The
-password-hashing schemes used by PostgreSQL and MySQL are
-@hyperlink["https://codahale.com/how-to-safely-store-a-password/"]{insufficient} to
-@hyperlink["http://security.stackexchange.com/questions/211/how-to-securely-hash-passwords"]{protect}
-short or common passwords.
+When connecting to a database server over a network, use TLS/SSL and
+take the steps necessary to use it securely. Without TLS, your data
+and possibly (depending on the authentication mechanism used) your
+connection credentials are exposed to any attackers with access to the
+network.
 
 Both @racket[postgresql-connect] and @racket[mysql-connect] support TLS; connect
 with @racket[#:ssl 'yes] and @racket[#:ssl-context _secure-context], where

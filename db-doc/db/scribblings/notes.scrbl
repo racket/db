@@ -64,8 +64,7 @@ explicitly allowed (see @racket[postgresql-connect])}
 @item{@tt{scram-sha-256}: password-based challenge/response protocol}
 @item{@tt{peer}: only for local sockets}
 ]
-The @tt{gss}, @tt{sspi}, @tt{krb5}, @tt{pam}, and @tt{ldap} methods
-are not supported.
+The @tt{gss}, @tt{sspi}, and @tt{krb5} methods are not supported.
 
 @history[#:changed "1.2" @elem{Added @tt{scram-sha-256} support.}]
 
@@ -124,18 +123,8 @@ may demand that it go through the slow path, based on the state of the
 server's authentication cache. The fast path uses a challenge-response
 protocol, but in the slow path the client simply sends the password to
 the server. This library refuses to send the password in the slow path
-unless @racket[mysql-connect] is called with
-@racket[#:allow-cleartext-password? #t]. You should not enable sending
-cleartext passwords unless you use a secure SSL context.
-
-@;{
-@racketblock[
-(define ssl-ctx
-  (parameterize ((ssl-default-verify-sources (list "/PATH/TO/ca.pem")))
-    (ssl-secure-client-context)))
-(mysql-connect .... #:ssl 'yes #:ssl-context ssl-ctx)
-]
-}
+unless allowed by the @racket[_allow-cleartext-password?] argument to
+@racket[mysql-connect]. See also @secref["dbsec-connect"].
 
 @history[#:changed "1.6" @elem{Added support for @tt{caching_sha2_password} authentication.}]
 
