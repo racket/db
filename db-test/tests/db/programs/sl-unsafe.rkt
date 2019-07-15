@@ -34,7 +34,8 @@
 (check-equal? (query-value c "select rktplus(?,?)" 1 2.0)
               3.0)
 
-(check-exn #rx"contract violation"
+;; Racket and RacketCS have different exception messages here:
+(check-exn #rx"contract violation|is not a number"
            (lambda () (query-value c "select rktplus('abc',2)")))
 
 ;; == Test create-aggregate ==
