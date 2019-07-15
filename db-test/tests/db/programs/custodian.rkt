@@ -40,7 +40,12 @@
      (lambda ()
        (with-handlers ([values (lambda (e) (set! result e))])
          (let loop ()
-           (query c "select ?" counter)
+           ;; We want a query that holds the lock for a long time (so we have a
+           ;; chance to interrupt it) but doesn't spend all that time in the
+           ;; foreign call (so the interrupting thread actually gets to run).
+           (query c
+             (string-append "with recursive ns(n) as ( select 1 union select n+1 from ns ) "
+                            "select n from ns limit ?") counter)
            (loop))))))
   (sleep (random))
   (custodian-shutdown-all cust)
