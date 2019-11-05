@@ -228,7 +228,10 @@
                 (make-client-auth-packet capabilities max-allowed-packet 'utf8-general-ci
                                          username data dbname auth-plugin)
                 (make-auth-followup-packet data)))
-          (cond [(equal? auth-plugin "mysql_native_password")
+          (cond [(not password)
+                 (unless first? (error/need-password 'mysql-connect))
+                 (send-message (auth #f))]
+                [(equal? auth-plugin "mysql_native_password")
                  (send-message (auth (scramble-password scramble password)))]
                 [(equal? auth-plugin "mysql_old_password")
                  (send-message
