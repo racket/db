@@ -182,7 +182,21 @@
 
  [start-transaction
   (->* (connection?)
-       (#:isolation (or/c 'serializable 'repeatable-read 'read-committed 'read-uncommitted #f)
+       (#:isolation
+        (or/c
+         ;; generic
+         'serializable
+         'repeatable-read
+         'read-committed
+         'read-uncommitted
+         ;; postgresql
+         'read-only
+         'read-write
+         ;; sqlite3
+         'deferred
+         'immediate
+         'exclusive
+         '#f)
         #:option any/c)
        void?)]
  [commit-transaction
@@ -195,7 +209,20 @@
   (-> connection? boolean?)]
  [call-with-transaction
   (->* (connection? (-> any))
-       (#:isolation (or/c 'serializable 'repeatable-read 'read-committed 'read-uncommitted #f)
+       (#:isolation (or/c
+                     ;; generic
+                     'serializable
+                     'repeatable-read
+                     'read-committed
+                     'read-uncommitted
+                     ;; postgresql
+                     'read-only
+                     'read-write
+                     ;; sqlite3
+                     'deferred
+                     'immediate
+                     'exclusive
+                     '#f)
         #:option any/c)
        any)]
 
