@@ -692,10 +692,11 @@
 (provide sha256-scramble-password)
 
 (define (sha256-scramble-password scramble password-str)
-  (define password (string->bytes/utf-8 password-str))
-  (define password-h (sha256-bytes password))
-  (define password-hh (sha256-bytes password-h))
-  (bytes-xor password-h (sha256-bytes (bytes-append password-hh scramble))))
+  (let ([scramble (subbytes scramble 0 20)])
+    (define password (string->bytes/utf-8 password-str))
+    (define password-h (sha256-bytes password))
+    (define password-hh (sha256-bytes password-h))
+    (bytes-xor password-h (sha256-bytes (bytes-append password-hh scramble)))))
 
 ;; =======================================
 
