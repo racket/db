@@ -207,7 +207,7 @@
                        '("plugin" value) auth))
              (define wanted-capabilities (desired-capabilities capabilities do-ssl? dbname))
              (when do-ssl? (connect:ssl wanted-capabilities))
-             (authenticate wanted-capabilities (or auth "mysql_native_password") scramble)]
+             (auth-loop (or auth "mysql_native_password") scramble wanted-capabilities)]
             [_ (error/comm 'mysql-connect "during authentication")])))
 
       (define (connect:ssl wanted-capabilities)
@@ -221,46 +221,56 @@
         (attach-to-ports sin sout)
         (set! using-ssl? #t))
 
-      (define (authenticate capabilities auth-plugin scramble)
-        (let loop ([auth-plugin auth-plugin] [scramble scramble] [first? #t])
-          (define (auth data)
-            (if first?
-                (make-client-auth-packet capabilities max-allowed-packet 'utf8-general-ci
-                                         username data dbname auth-plugin)
-                (make-auth-followup-packet data)))
-          (cond [(not password)
-                 (unless first? (error/need-password 'mysql-connect))
-                 (send-message (auth #f))]
-                [(equal? auth-plugin "mysql_native_password")
-                 (send-message (auth (scramble-password scramble password)))]
-                [(equal? auth-plugin "mysql_old_password")
-                 (send-message
-                  (auth (bytes-append (old-scramble-password scramble password) (bytes 0))))]
-                [(equal? auth-plugin "mysql_clear_password")
-                 ;; Note: untested, since the server-side authentication plugins that use
-                 ;; mysql_clear_password on the client seem to be only available for commercial
-                 ;; versions of MySQL.
-                 (unless (check-allow-cleartext-password?)
-                   (error 'mysql-connect "mysql_clear_password authentication failed~a~a"
-                          ";\n refusing to send password (see `allow-cleartext-password?`)"))
-                 (send-message (auth (bytes-append (string->bytes/utf-8 password #"\0"))))]
-                [(equal? auth-plugin "caching_sha2_password")
-                 (send-message (auth (sha256-scramble-password scramble password)))
-                 (auth:continue-caching-sha2 scramble)]
-                [else
-                 (error 'mysql-connect "back end requested unsupported authentication plugin\n  plugin: ~v"
-                        auth-plugin)])
-          (match (recv 'mysql-connect 'auth)
-            [(ok-packet _ _ status warnings message)
-             (after-connect)]
-            [(change-plugin-packet plugin data)
-             ;; if plugin = #f, means "mysql_old_password"
-             (loop (or plugin "mysql_old_password") (or data scramble) #f)])))
+      (define (auth-loop auth-plugin scramble capabilities)
+        ;; capabilities is a symbol list on the first auth exchange, #f on subsequent
+        ;; because protocol distinguishes (client-auth-packet vs auth-followup-packet)
+        (define (auth data)
+          (if capabilities
+              (make-client-auth-packet capabilities max-allowed-packet 'utf8-general-ci
+                                       username data dbname auth-plugin)
+              (make-auth-followup-packet data)))
+        (cond [(not password)
+               (unless capabilities (error/need-password 'mysql-connect))
+               (send-message (auth #f))
+               (auth:continue scramble)]
+              [(equal? auth-plugin "mysql_native_password")
+               (send-message (auth (scramble-password scramble password)))
+               (auth:continue scramble)]
+              [(equal? auth-plugin "mysql_old_password")
+               (send-message
+                (auth (bytes-append (old-scramble-password scramble password) (bytes 0))))
+               (auth:continue scramble)]
+              [(equal? auth-plugin "mysql_clear_password")
+               ;; Note: untested, since the server-side authentication plugins that use
+               ;; mysql_clear_password on the client seem to be only available for commercial
+               ;; versions of MySQL.
+               (unless (check-allow-cleartext-password?)
+                 (error 'mysql-connect "mysql_clear_password authentication failed~a~a"
+                        ";\n refusing to send password (see `allow-cleartext-password?`)"))
+               (send-message (auth (bytes-append (string->bytes/utf-8 password #"\0"))))
+               (auth:continue scramble)]
+              [(equal? auth-plugin "caching_sha2_password")
+               (send-message (auth (sha256-scramble-password scramble password)))
+               (auth:continue-caching-sha2 scramble)]
+              [else
+               (error 'mysql-connect "back end requested unsupported authentication plugin\n  plugin: ~v"
+                      auth-plugin)]))
+
+      (define (auth:continue scramble #:message [msg #f])
+        (match (or msg (recv 'mysql-connect 'auth))
+          [(ok-packet _ _ status warnings message)
+           (after-connect)]
+          [(change-plugin-packet plugin data)
+           ;; if plugin = #f, means "mysql_old_password"
+           ;; data may contain more than just scramble/nonce (eg, for
+           ;; mysql_native_password on MySQL 8.0.16, data has extra "\0" at end; the
+           ;; {scramble,old-scramble}-password function trim to appropriate prefix.
+           (auth-loop (or plugin "mysql_old_password") (or data scramble) #f)]))
 
       (define (auth:continue-caching-sha2 scramble)
         (match (recv 'mysql-connect 'auth)
           [(auth-more-data-packet #"\3") ;; fast_auth_success
-           (void)]
+           (auth:continue scramble)]
           [(auth-more-data-packet #"\4") ;; perform_full_authentication
            (cond [(and (eq? transport 'tcp) (not using-ssl?))
                   ;; The caching_sha2_password protocol says we should now
@@ -278,7 +288,10 @@
                            ";\n refusing to send password (see `allow-cleartext-password?`)"
                            ";\n and the server rejected the fast path"))
                   (send-message
-                   (auth-followup-packet (bytes-append (string->bytes/utf-8 password) #"\0")))])]
+                   (auth-followup-packet (bytes-append (string->bytes/utf-8 password) #"\0")))
+                  (auth:continue scramble)])]
+          [(? change-plugin-packet? msg)
+           (auth:continue scramble #:message msg)]
           [else (error/comm 'mysql-connect "during authentication (caching_sha2_password)")]))
 
       (define (check-allow-cleartext-password?)
@@ -649,7 +662,8 @@
 ;; scramble-password : bytes string -> bytes
 (define (scramble-password scramble password)
   (and scramble password
-       (let* ([stage1 (cond [(string? password) (password-hash password)]
+       (let* ([scramble (subbytes scramble 0 20)]
+              [stage1 (cond [(string? password) (password-hash password)]
                             [(pair? password) (hex-string->bytes (cadr password))])]
               [stage2 (sha1-bytes (open-input-bytes stage1))]
               [stage3 (sha1-bytes (open-input-bytes (bytes-append scramble stage2)))]
