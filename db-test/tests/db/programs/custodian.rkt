@@ -24,10 +24,9 @@
 
 (printf "Running tests for ~a.\n" (or dsn 'sqlite3))
 
-(define counter 0)
 (define shutdown-exn? #f)
 
-(define (run-test)
+(define (run-test counter)
   (define cust (make-custodian))
   (define c
     (parameterize ((current-custodian cust))
@@ -65,7 +64,7 @@
 (for ([i 100]
       #:break shutdown-exn?)
   (printf "Test run ~s" i)
-  (run-test))
+  (run-test i))
 
 (unless shutdown-exn?
   (error 'test "did not see expected exception, 'disconnected during operation'"))
