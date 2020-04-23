@@ -470,7 +470,7 @@ transaction that only performs reads in the default mode, and start a
 transaction that may perform writes in @racket['immediate] mode (see
 @racket[start-transaction]). That converts the problem of retrying
 whole transactions into the problem of retrying the initial @tt{BEGIN
-TRANSACTION} statment, and this library already automatically retries
+TRANSACTION} statement, and this library already automatically retries
 individual statements that fail with @racket['busy] errors. Depending
 on the length and frequency of the transactions, you may need to
 adjust @racket[_busy-retry-limit] (see @racket[sqlite3-connect]).
