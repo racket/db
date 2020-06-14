@@ -6,7 +6,7 @@
 (define deps '("srfi-lite-lib"
                ["base" #:version "7.0.0.5"]
                "unix-socket-lib"
-               "sasl-lib"))
+               ["sasl-lib" #:version "1.1"]))
 
 (define pkg-desc "implementation (no documentation) part of \"db\"")
 

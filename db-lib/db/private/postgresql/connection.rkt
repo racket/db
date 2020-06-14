@@ -260,12 +260,20 @@
           [(struct AuthenticationSCMCredential ())
            (error/no-support 'postgresql-connect "SCM authentication")]
           [(AuthenticationSASL methods)
-           (cond [(member "SCRAM-SHA-256" methods)
+           (cond [(and (member "SCRAM-SHA-256-PLUS" methods) (ssl-port? inport))
                   (unless password (error/need-password 'postgresql-connect))
-                  (define scram (make-scram-client-ctx 'sha256 username password))
-                  (send-message (make-SASLInitialResponse
-                                 "SCRAM-SHA-256" (sasl-next-message scram)))
-                  (connect:auth/scram scram)
+                  (define cb (ssl-channel-binding inport 'tls-server-end-point))
+                  (define scram (make-scram-client-ctx
+                                 'sha256 username password
+                                 #:channel-binding `(tls-server-end-point ,cb)))
+                  (connect:auth/scram "SCRAM-SHA-256-PLUS" scram)
+                  (connect:expect-auth username password local?)]
+                 [(member "SCRAM-SHA-256" methods)
+                  (unless password (error/need-password 'postgresql-connect))
+                  (define scram (make-scram-client-ctx
+                                 'sha256 username password
+                                 #:channel-binding (ssl-port? inport)))
+                  (connect:auth/scram "SCRAM-SHA-256" scram)
                   (connect:expect-auth username password local?)]
                  [else
                   (error/no-support 'postgresql-connect
@@ -273,20 +281,21 @@
           ;; ErrorResponse handled by recv-message
           [_ (error/comm 'postgresql-connect "during authentication")])))
 
-    (define/private (connect:auth/scram scram)
+    (define/private (connect:auth/scram method scram)
+      (send-message (make-SASLInitialResponse method (sasl-next-message scram)))
       (match (recv-message 'postgresql-connect)
         [(AuthenticationSASLContinue content)
          (sasl-receive-message scram content)
          (send-message (make-SASLResponse (sasl-next-message scram)))
-         (connect:auth/scram2 scram)]
-        [_ (error/comm 'postgresql-connect "during SCRAM-SHA-256 authentication")]))
-    (define/private (connect:auth/scram2 scram)
+         (connect:auth/scram2 method scram)]
+        [_ (error/comm 'postgresql-connect (format "during ~a authentication" method))]))
+    (define/private (connect:auth/scram2 method scram)
       (match (recv-message 'postgresql-connect)
         [(AuthenticationSASLFinal content)
          (sasl-receive-message scram content)
          (unless (eq? (sasl-state scram) 'done)
-           (error/internal 'postgresql-connect "SCRAM-SHA-256 unexpected state"))]
-        [_ (error/comm 'postgresql-connect "during SCRAM-SHA-256 authentication")]))
+           (error/internal 'postgresql-connect (format "~a unexpected state" method)))]
+        [_ (error/comm 'postgresql-connect (format "during ~a authentication" method))]))
 
     ;; connect:expect-ready-for-query : -> void
     (define/private (connect:expect-ready-for-query)
