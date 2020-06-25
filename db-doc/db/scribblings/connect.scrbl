@@ -126,6 +126,9 @@ Base connections are made using the following functions.
                          #:user "me"
                          #:database "me")
      (new connection%)]]
+
+@history[#:changed "1.2" @elem{Added support for @tt{SCRAM-SHA-256} authentication.}
+         #:changed "1.7" @elem{Added support for @tt{SCRAM-SHA-256-PLUS} authentication.}]
 }
 
 @defproc[(postgresql-guess-socket-path)
@@ -143,7 +146,7 @@ Base connections are made using the following functions.
                   [#:database database (or/c string? #f) #f]
                   [#:server server string? "localhost"]
                   [#:port port exact-positive-integer? 3306]
-                  [#:socket socket (or/c path-string? #f) #f]
+                  [#:socket socket (or/c path-string? 'guess #f) #f]
                   [#:allow-cleartext-password? allow-cleartext-password?
                    (or/c boolean? 'local) 'local]
                   [#:ssl ssl (or/c 'yes 'optional 'no) 'no]
@@ -191,8 +194,9 @@ Base connections are made using the following functions.
                     #:database "me")
      (new connection%)]]
 
-  @history[#:changed "1.6" @elem{Added the @racket[#:allow-cleartext-password?] argument; see
-  @secref["MySQL_Authentication"].}]
+@history[#:changed "1.6" @elem{Added support for @tt{caching_sha2_password}
+  authentication and added the @racket[#:allow-cleartext-password?] argument;
+  see @secref["MySQL_Authentication"].}]
 }
 
 @defproc[(mysql-guess-socket-path)

@@ -61,12 +61,15 @@ file. This library currently works with the following authentication methods:
 @item{@tt{plain} (and @tt{ldap}, @tt{pam}, @tt{radius}): cleartext password, only if
 explicitly allowed (see @racket[postgresql-connect])}
 @item{@tt{md5}: MD5-hashed password}
-@item{@tt{scram-sha-256}: password-based challenge/response protocol}
+@item{@tt{scram-sha-256}: password-based challenge/response protocol. Depending
+on server configuration and whether TLS is used, this may correspond to either
+@tt{SCRAM-SHA-256} or @tt{SCRAM-SHA-256-PLUS}.}
 @item{@tt{peer}: only for local sockets}
 ]
 The @tt{gss}, @tt{sspi}, and @tt{krb5} methods are not supported.
 
-@history[#:changed "1.2" @elem{Added @tt{scram-sha-256} support.}]
+@history[#:changed "1.2" @elem{Added @tt{SCRAM-SHA-256} support.}
+         #:changed "1.7" @elem{Added @tt{SCRAM-SHA-256-PLUS} support.}]
 
 @section[#:tag "postgresql-timestamp-tz"]{PostgreSQL Timestamps and Time Zones}
 
@@ -121,12 +124,26 @@ The @tt{caching_sha2_password} authentication plugin has two
 ``paths''; a client always tries the fast path first, but the server
 may demand that it go through the slow path, based on the state of the
 server's authentication cache. The fast path uses a challenge-response
-protocol, but in the slow path the client simply sends the password to
-the server. This library refuses to send the password in the slow path
-unless allowed by the @racket[_allow-cleartext-password?] argument to
-@racket[mysql-connect]. See also @secref["dbsec-connect"].
+protocol. The slow path is divided into the following cases:
+@itemlist[
 
-@history[#:changed "1.6" @elem{Added support for @tt{caching_sha2_password} authentication.}]
+@item{connection via unix socket or via TCP with TLS to @tt{localhost}:
+The client simply sends the password to the server.}
+
+@item{connection via TCP with TLS, but not to @tt{localhost}: The client
+sends the password to the server if the
+@racket[_allow-cleartext-password?] argument is true; otherwise, an
+exception is raised.}
+
+@item{connection via TCP without TLS: Not supported by this library; an
+exception is raised.}
+
+]
+
+See also @secref["dbsec-connect"].
+
+@history[#:changed "1.6" @elem{Added support for
+@tt{caching_sha2_password} authentication.}]
 
 
 @section{MySQL @tt{CALL}ing Stored Procedures}
