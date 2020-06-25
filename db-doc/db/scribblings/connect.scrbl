@@ -596,7 +596,7 @@ specification in a DSN file. They are inspired by, but distinct from,
 ODBC's DSNs.
 
 @defstruct*[data-source
-              ([connector (or/c 'postgresql 'mysql 'sqlite3 'odbc)]
+              ([connector (or/c 'postgresql 'mysql 'sqlite3 'odbc 'odbc-driver)]
                [args list?]
                [extensions (listof (list/c symbol? any/c))])
             #:mutable]{
@@ -722,15 +722,28 @@ ODBC's DSNs.
            [#:notice-handler notice-handler (or/c 'output 'error) @#,absent]
            [#:strict-parameter-types? strict-parameter-types? boolean? @#,absent]
            [#:character-mode character-mode (or/c 'wchar 'utf-8 'latin-1) @#,absent]
+           [#:quirks quirks (listof symbol?) null]
            [#:use-place use-place boolean? @#,absent])
-         data-source?]]]{
+         data-source?]
+@defproc[(odbc-driver-data-source
+           [connection-string string?]
+           [#:notice-handler notice-handler (or/c 'output 'error) @#,absent]
+           [#:strict-parameter-types? strict-parameter-types? boolean? @#,absent]
+           [#:character-mode character-mode (or/c 'wchar 'utf-8 'latin-1) @#,absent]
+           [#:quirks quirks (listof symbol?) null]
+           [#:use-place use-place boolean? @#,absent])
+         data-source?]
+]]{
 
   Analogues of @racket[postgresql-connect], @racket[mysql-connect],
-  @racket[sqlite3-connect], and @racket[odbc-connect], respectively,
+  @racket[sqlite3-connect], @racket[odbc-connect], and
+  @racket[odbc-driver-connect], respectively,
   that return a @racket[data-source] describing the (partial)
   connection information. All arguments are optional, even those that
   are mandatory in the corresponding connection function; the missing
   arguments must be supplied when @racket[dsn-connect] is called.
+
+  @history[#:changed "1.7" @elem{Added @racket[odbc-driver-data-source].}]
 }
 
 

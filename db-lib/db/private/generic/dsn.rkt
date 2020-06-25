@@ -15,14 +15,15 @@
          mysql-data-source
          cassandra-data-source
          sqlite3-data-source
-         odbc-data-source)
+         odbc-data-source
+         odbc-driver-data-source)
 
 (lazy-require
  [db/postgresql (postgresql-connect)]
  [db/mysql      (mysql-connect)]
  [db/cassandra  (cassandra-connect)]
  [db/sqlite3    (sqlite3-connect)]
- [db/odbc       (odbc-connect)])
+ [db/odbc       (odbc-connect odbc-driver-connect)])
 
 #|
 DSN v0.1 format
@@ -31,7 +32,7 @@ A DSN (prefs) file maps symbol => <data-source>
 
 <data-source> ::= (db <connector> <args> <extensions>)
 
-<connector> ::= postgresql | mysql | sqlite3 | odbc
+<connector> ::= postgresql | mysql | sqlite3 | odbc | odbc-driver
 
 <args> ::= (<arg> ...)
 <arg>  ::= <datum> | { <kw> <datum> }
@@ -66,7 +67,7 @@ considered important.
            (writable-datum? (cdr x)))))
 
 (define (connector? x)
-  (memq x '(postgresql mysql cassandra sqlite3 odbc)))
+  (memq x '(postgresql mysql cassandra sqlite3 odbc odbc-driver)))
 
 (define (parse-arglist x [default none])
   (define (fail . args)
@@ -147,7 +148,8 @@ considered important.
     ((mysql) mysql-connect)
     ((cassandra) cassandra-connect)
     ((sqlite3) sqlite3-connect)
-    ((odbc) odbc-connect)))
+    ((odbc) odbc-connect)
+    ((odbc-driver) odbc-driver-connect)))
 
 (define dsn-connect
   (make-keyword-procedure
@@ -208,4 +210,9 @@ considered important.
 (define odbc-data-source
   (mk-specialized 'odbc-data-source 'odbc 0
                   '(#:dsn #:user #:password #:notice-handler
+                    #:strict-parameter-types? #:character-mode #:quirks #:use-place)))
+
+(define odbc-driver-data-source
+  (mk-specialized 'odbc-driver-data-source 'odbc 1
+                  '(#:notice-handler
                     #:strict-parameter-types? #:character-mode #:quirks #:use-place)))
