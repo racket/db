@@ -10,6 +10,7 @@
 (define-signature database^
   (dbtestname
    connect
+   connect-first-time
    dbsys
    dbflags
    kill-safe?))
@@ -31,7 +32,8 @@
    NOISY?
    FLAG
    ANDFLAGS
-   ORFLAGS))
+   ORFLAGS
+   config-dont-gc))
 
 (define-unit config@
   (import database^)
@@ -52,6 +54,9 @@
       (6 "half a dozen")))
 
   (define (connect-and-setup)
+    (when (FLAG 'sleep-before-connect)
+      ;; Oracle ODBC tests spuriously fail if connections are made too quickly
+      (sleep 0.01))
     (let [(cx (connect-for-test))]
       (when (FLAG 'can-temp-table)
         (query-exec cx
@@ -88,14 +93,6 @@
            (sql (string-append "values (" str ")"))]
           [else (sql (string-append "select " str))]))
 
-  (define dbsystem
-    (with-handlers ([(lambda (e) #t)
-                     (lambda (e) #f)])
-      (let* ([c (connect)]
-             [dbsystem (send c get-dbsystem)])
-        (disconnect c)
-        dbsystem)))
-
   ;; ----------------------------------------
   ;; Flags
 
@@ -109,6 +106,11 @@
   ;;   'async = ODBC connection allows async execution (ie, via places)
   ;;   'pg92  = PostgreSQL >= 9.2
   ;;   'concurrent = ok to test many concurrent connections
+  ;;   'sleep-before-connect = ad hoc rate-limiting for connections
+  ;;   'connect-first-ssl = add { #:ssl 'yes } to first connection attempt
+  ;;                        (eg to warm up MySQL 8 sha2 auth cache)
+  ;;   'keep-unused-connection = keep an unused connection open throughout tests
+  ;;                             (eg DB2 time goes from 150s to 0.6s)
 
   (define allflags (cons dbsys dbflags))
   (define (add-flag! . fs) (set! allflags (append fs allflags)))
@@ -123,12 +125,43 @@
     [(postgresql) (add-flag! 'ispg 'wire 'concurrent 'async)]
     [(mysql)      (add-flag! 'ismy 'wire 'concurrent 'async)]
     [(sqlite3)    (add-flag! 'issl 'ffi  'concurrent)]
-    [(odbc)       (add-flag! 'ffi)])
+    [(odbc)       (add-flag! 'ffi)]
+    [(cassandra)  (error 'config "this test suite does not support Cassandra")])
 
   ;; 'can-temp-table = can use "CREATE TEMP TABLE"; make temp "the_numbers" on connect
-  ;; 'const-table = table "the_numbers" is pre-populated; don't modify!
+  ;; 'const-table = table "the_numbers" is created below; don't modify in query tests!
   (if (ORFLAGS 'ispg 'ismy 'issl)
       (add-flag! 'can-temp-table)
       (add-flag! 'const-table))
 
-  )
+  (define dbsystem
+    (with-handlers ([exn:fail?
+                     (lambda (e)
+                       (eprintf "ERROR: Connection failed!\n")
+                       (eprintf "Check DSN for test: name=~e, sys=~e, flags=~e.\n"
+                                dbtestname dbsys dbflags)
+                       (raise e))])
+      (define c (connect-first-time (FLAG 'connect-first-ssl)))
+      (when (FLAG 'const-table)
+        ;; table-exists? doesn't work on SQLServer
+        (cond [(ORFLAGS 'ismss) ;; table-exists? doesn't work
+               (with-handlers ([exn:fail? void])
+                 (query-exec c "drop table the_numbers"))]
+              [else
+               (when (table-exists? c "the_numbers")
+                 (query-exec c "drop table the_numbers"))])
+        ;; DB2: "primary key" apparently doesn't imply "not null"
+        (cond [(FLAG 'isdb2)
+               (query-exec c
+                 "create table the_numbers (N integer not null primary key, descr varchar(80))")]
+              [else
+               (query-exec c "create table the_numbers (N integer primary key, descr varchar(80))")])
+        (for ([p test-data])
+          (query-exec c (format "insert into the_numbers values (~a, '~a')" (car p) (cadr p)))))
+      (begin0 (send c get-dbsystem)
+        (disconnect c))))
+
+  (define config-dont-gc
+    (cond [(FLAG 'keep-unused-connection)
+           (connect)]
+          [else (void)])))

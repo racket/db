@@ -124,11 +124,12 @@ Testing profiles are flattened, not hierarchical.
 (define (dbconf->unit x)
   (match x
     [(dbconf dbtestname (and r (data-source connector _args exts)))
-     (let* ([connect (lambda () (dsn-connect r))]
-            [dbsys (case connector ((odbc-driver) 'odbc) (else connector))]
-            [dbflags (cond [(assq 'db:test exts) => cadr]
-                           [else '()])])
-       (unit-from-context database^))]))
+     (define (connect) (dsn-connect r))
+     (define dbsys (case connector ((odbc-driver) 'odbc) (else connector)))
+     (define dbflags (cond [(assq 'db:test exts) => cadr] [else '()]))
+     (define (connect-first-time ssl?)
+       (if ssl? (dsn-connect #:ssl 'yes r) (connect)))
+     (unit-from-context database^)]))
 
 (define (odbc-unit dbtestname dbflags dbargs)
   (dbconf->unit
@@ -225,6 +226,7 @@ Testing profiles are flattened, not hierarchical.
  [("-k" "--killsafe") "Wrap with kill-safe-connection" (set! kill-safe? #t)]
  [("-s" "--sqlite3") "Run sqlite3 in-memory db tests" (set! include-sqlite? #t)]
  [("-f" "--config-file") file  "Use configuration file" (pref-file file)]
+ [("-d" "--dsn-file") file "Use DSN file" (current-dsn-file (path->complete-path file))]
  #:args labels
  (let* ([no-labels?
          (not (or include-sqlite? (pair? labels)))]
