@@ -573,7 +573,7 @@
       ['timestamp
        (unless (or (sql-timestamp? v) (date? v)) (err))
        (define d (if (sql-timestamp? v) (sql-datetime->srfi-date v) v))
-       (define ms (inexact->exact (round (* 1000 (date*->seconds v)))))
+       (define ms (inexact->exact (round (* 1000 (date*->seconds d #f)))))
        (integer->integer-bytes ms 8 #t #t)]
       [(or 'uuid 'timeuuid)
        (unless (uuid? v) (err))

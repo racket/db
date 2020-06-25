@@ -102,23 +102,23 @@
     (define recv-thread-go (make-semaphore 0))
 
     ;; FIXME: handle inport EOF?
-    (thread
-     (lambda ()
-       (semaphore-wait recv-thread-go)
-       (with-handlers ([(lambda (e) #t)
-                        (lambda (e)
-                          ;; FIXME?
-                          (disconnect* #f)
-                          (raise e))])
-         (let loop ()
-           (match (read-response inport)
-             [(cons resp streamid)
-              (dprintf "  << #~s ~s\n" streamid resp)
-              (define lwac (hash-ref recv-map streamid))
-              (hash-remove! recv-map streamid)
-              (set-box! (cdr lwac) resp)
-              (semaphore-post (car lwac))])
-           (loop)))))
+    (define recv-message-thread
+      (thread
+       (lambda ()
+         (semaphore-wait recv-thread-go)
+         (with-handlers ([(lambda (e) #t)
+                          (lambda (e)
+                            (disconnect* #f)
+                            (raise e))])
+           (let loop ()
+             (match (read-response inport)
+               [(cons resp streamid)
+                (dprintf "  << #~s ~s\n" streamid resp)
+                (define lwac (hash-ref recv-map streamid))
+                (hash-remove! recv-map streamid)
+                (set-box! (cdr lwac) resp)
+                (semaphore-post (car lwac))])
+             (loop))))))
 
     ;; recv-message : symbol -> message
     (define/private (recv-message who)
@@ -137,6 +137,9 @@
     ;; handle-async-message : message -> void
     (define/private (handle-async-message fsym msg)
       (match msg
+        [(? Event:SchemaChange?) (flush-statement-cache!)]
+        [_ (void)])
+      (match msg
         [_ (add-delayed-call! (lambda () (void)))]))
 
     ;; == Connection management
@@ -145,7 +148,11 @@
     (define/override (disconnect* politely?)
       (super disconnect* politely?)
       (let ([outport* outport]
-            [inport* inport])
+            [inport* inport]
+            [recv-message-thread* recv-message-thread])
+        (when recv-message-thread*
+          (kill-thread recv-message-thread*)
+          (set! recv-message-thread #f))
         (when outport*
           (close-output-port outport*)
           (set! outport #f))
@@ -212,8 +219,6 @@
     ;; ========================================
     ;; == Cache
 
-    ;; FIXME: empty cache on schema change event?
-
     ;; pst-cache : Hash[ String => PreparedStatement ]
     (define pst-cache (make-hash))
 
@@ -231,6 +236,9 @@
         (when sql
           (dprintf "  ** caching statement\n")
           (hash-set! pst-cache sql pst))))
+
+    (define/private (flush-statement-cache!)
+      (hash-clear! pst-cache))
 
     ;; ========================================
     ;; == Prepare
@@ -251,9 +259,11 @@
                   (handle stmt-id)
                   (close-on-exec? #f)
                   (param-typeids (map dvec-type param-dvecs))
-                  (result-dvecs result-dvecs)
+                  (result-dvecs (or result-dvecs null))
                   (stmt stmt)
                   (owner this))]
+            [(? Error? msg)
+             (raise-backend-error who msg)]
             [other (error/comm who "during prepare")]))))
 
     ;; free-statement : prepared-statement -> void
@@ -290,10 +300,15 @@
     (define/private (query1:collect who msg)
       (match msg
         [(Result:Void _)
-         (simple-result #f)]
+         (simple-result null)]
         [(Result:Rows _ _pagestate dvecs rows)
          (rows-result (map dvec->field-info dvecs) rows)]
-        [(Error code message)
+        [(Result:SetKeyspace _ keyspace)
+         (simple-result `((keyspace . ,keyspace)))]
+        [(Result:SchemaChange _ type target details)
+         (flush-statement-cache!)
+         (simple-result `((type . ,type) (target . ,target) (details . ,details)))]
+        [(? Error?)
          (raise-backend-error who msg)]))
 
     ;; check-statement : Symbol Statement -> Statement
