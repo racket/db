@@ -1066,26 +1066,18 @@ computed string on the server can be. See also:
 (define (at-eof? in)
   (eof-object? (peek-byte in)))
 
-(define (parse-field-dvec fp)
+;; dvec = field-packet
+(define (parse-field-dvec fp) fp)
+
+(define (field-dvec->typeid fp) (field-packet-type fp))
+(define (field-dvec->name fp) (field-packet-name fp))
+(define (field-dvec->flags fp) (field-packet-flags fp))
+(define (field-dvec->length fp) (field-packet-length fp))
+(define (field-dvec->charset fp) (field-packet-charset fp))
+
+(define (field-dvec->field-info fp)
   (match fp
-    [(struct field-packet (cat db tab otab name oname _ len type flags _ _))
-     (vector cat db tab otab name oname len type flags)]))
-
-(define (field-dvec->typeid dvec)
-  (vector-ref dvec 7))
-
-(define (field-dvec->name dvec)
-  (vector-ref dvec 4))
-
-(define (field-dvec->flags dvec)
-  (vector-ref dvec 8))
-
-(define (field-dvec->length dvec)
-  (vector-ref dvec 6))
-
-(define (field-dvec->field-info dvec)
-  (match dvec
-    [(vector cat db tab otab name oname len type flags)
+    [(struct field-packet (cat db tab otab name oname charset len type flags _ _))
      `((catalog . ,cat)
        (database . ,db)
        (table . ,tab)
