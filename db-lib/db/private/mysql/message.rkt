@@ -671,18 +671,6 @@ computed string on the server can be. See also:
       (values msg-num* (make-binary-row-data-packet field-v)))))
 
 (define (read-binary-datum in field-dvec)
-
-  ;; How to distinguish between character data and binary data?
-  ;; (Both are given type var-string.)
-  ;; (Also true for blob vs text; both given as type blob.)
-
-  ;; There seem to be two differences:
-  ;;  1) character data has charset 33 (utf8_general_ci)
-  ;;     binary data has charset 63 (binary)
-  ;;  2) binary data has binary flag, character data does not
-
-  ;; We'll try using #2.
-
   (define type (field-dvec->typeid field-dvec))
   (define flags (field-dvec->flags field-dvec))
 
@@ -693,8 +681,17 @@ computed string on the server can be. See also:
     ((int24) (io:read-le-int32 in (not (memq 'unsigned flags)))) ;; yes, int24 sent in 32 bits
     ((long) (io:read-le-int32 in (not (memq 'unsigned flags))))
     ((longlong) (io:read-le-int64 in (not (memq 'unsigned flags))))
+
     ((varchar string var-string blob tiny-blob medium-blob long-blob)
-     (if (memq 'binary flags)
+     ;; How to distinguish between character data and binary data? Both have
+     ;; type var-string. (Also true for blob vs text; both have type blob.)
+     ;; There seem to be two differences:
+     ;;  1) binary data has charset 63 (binary), character data has other
+     ;;  2) binary data has binary flag, character data does not
+     ;; Infeasible to try to recognize known charsets, so treat everything
+     ;; non-binary as utf8 string. Recognize both by charset and by flag; allows
+     ;; use of "SET character_set_results = binary".
+     (if (or (memq 'binary flags) (eqv? (field-dvec->charset field-dvec) BINARY-CHARSET))
          (io:read-length-coded-bytes in)
          (io:read-length-coded-string in)))
 
@@ -1030,11 +1027,15 @@ computed string on the server can be. See also:
 (define (encode-charset charset)
   (case charset
     ((utf8-general-ci) 33)
+    ((binary) 63)
     (else (error/internal* 'encode-charset "unknown charset" "charset" charset))))
 (define (decode-charset n)
   (case n
     ((33) 'utf8-general-ci)
+    ((63) 'binary)
     (else 'unknown)))
+
+(define BINARY-CHARSET 63)
 
 (define (encode-type type)
   (fetch type types/encoding 'encode-type))
