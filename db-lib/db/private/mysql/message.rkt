@@ -1033,7 +1033,7 @@ computed string on the server can be. See also:
 
 (define (encode-charset charset)
   (case charset
-    ((utf8-general-ci)         33)
+    ((utf8_general_ci)         33)
     ((binary)                  63)
     ((utf8mb4_0900_ai_ci)     255)
     ;; ----
@@ -1052,7 +1052,7 @@ computed string on the server can be. See also:
 (define (decode-charset n)
   (case n
     ((255) 'utf8mb4_0900_ai_ci) ;; default in 8.0
-    ((33)  'utf8-general-ci)
+    ((33)  'utf8_general_ci)
     ((63)  'binary)
     ;; ----
     ((45)  'utf8mb4_general_ci)

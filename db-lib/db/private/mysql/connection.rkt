@@ -208,8 +208,20 @@
                (error* 'mysql-connect "back end requested unsupported authentication plugin"
                        '("plugin" value) auth))
              (define wanted-capabilities (desired-capabilities capabilities do-ssl? dbname))
+             (define-values (client-charset set-names?)
+               (cond [(memq charset '(utf8mb4_0900_ai_ci utf8mb4_general_ci))
+                      (values charset #f)]
+                     [(regexp-match? #rx"^(?:4|5[.][0-4]|5[.]5[.][0-2])" sver) ;; < 5.5.3
+                      (values 'utf8_general_ci #f)]
+                     [else (values 'utf8mb4_general_ci #f)]))
              (when do-ssl? (connect:ssl wanted-capabilities))
-             (auth-loop (or auth "mysql_native_password") scramble wanted-capabilities)]
+             (auth-loop (or auth "mysql_native_password") scramble
+                        (lambda (auth-plugin data)
+                          (make-client-auth-packet wanted-capabilities
+                                                   max-allowed-packet
+                                                   client-charset
+                                                   username data dbname auth-plugin)))
+             (after-connect set-names?)]
             [_ (error/comm 'mysql-connect "during authentication")])))
 
       (define (connect:ssl wanted-capabilities)
@@ -223,16 +235,14 @@
         (attach-to-ports sin sout)
         (set! using-ssl? #t))
 
-      (define (auth-loop auth-plugin scramble capabilities)
-        ;; capabilities is a symbol list on the first auth exchange, #f on subsequent
+      (define (auth-loop auth-plugin scramble make-auth)
+        ;; make-auth is a procedure on the first auth exchange, #f on subsequent
         ;; because protocol distinguishes (client-auth-packet vs auth-followup-packet)
         (define (auth data)
-          (if capabilities
-              (make-client-auth-packet capabilities max-allowed-packet 'utf8-general-ci
-                                       username data dbname auth-plugin)
-              (make-auth-followup-packet data)))
+          (cond [make-auth (make-auth auth-plugin data)]
+                [else (make-auth-followup-packet data)]))
         (cond [(not password)
-               (unless capabilities (error/need-password 'mysql-connect))
+               (unless make-auth (error/need-password 'mysql-connect))
                (send-message (auth #f))
                (auth:continue scramble)]
               [(equal? auth-plugin "mysql_native_password")
@@ -261,7 +271,7 @@
       (define (auth:continue scramble #:message [msg #f])
         (match (or msg (recv 'mysql-connect 'auth))
           [(ok-packet _ _ status warnings message)
-           (after-connect)]
+           (void)]
           [(change-plugin-packet plugin data)
            ;; if plugin = #f, means "mysql_old_password"
            ;; data may contain more than just scramble/nonce (eg, for
@@ -317,10 +327,11 @@
               '(interactive)
               (filter (lambda (c) (memq c DESIRED-CAPABILITIES)) capabilities)))
 
-    ;; Set connection to use utf8 encoding
-    (define/private (after-connect)
-      (query 'mysql-connect "set names 'utf8'" #f)
-      (void))
+    (define/private (after-connect set-names?)
+      (when set-names?
+        (with-handlers ([exn:fail:sql?
+                         (lambda (e) (dprintf "  !! failed SET NAMES: ~e\n" (exn-message e)))])
+          (query 'mysql-connect "SET NAMES 'utf8mb4'" #f))))
 
     ;; ========================================
 
