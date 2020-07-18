@@ -892,31 +892,34 @@ computed string on the server can be. See also:
   (map (lambda (p) (cons (cdr p) (car p))) alist))
 
 (define server-flags/decoding
-  '((#x1     . long-password)
-    (#x2     . found-rows)
-    (#x4     . long-flag)
-    (#x8     . connect-with-db)
-    (#x10    . no-schema)
-    (#x20    . compress)
-    (#x40    . odbc)
-    (#x80    . local-files)
-    (#x100   . ignore-space)
-    (#x200   . protocol-41)
-    (#x400   . interactive)
-    (#x800   . ssl)
-    (#x1000  . ignore-sigpipe)
-    (#x2000  . transactions)
-    (#x4000  . protocol-41-OLD)
-    (#x8000  . secure-connection)
-    (#x10000 . multi-statements)
-    (#x20000 . multi-results)
-    (#x40000 . ps-multi-results) ;; ???
-    (#x80000 . plugin-auth)
-    (#x100000 . connect-attrs)
-    (#x200000 . client-plugin-auth-lenenc-client-data)
-    (#x400000 . client-can-handle-expired-passwords)
-    (#x800000 . client-session-track)
-    (#x1000000 . client-deprecate-eof)))
+  '((#x1     . long-password)   ;; "assumed to be set since 4.1.1"
+    (#x2     . found-rows)      ;; "Send found rows instead of affected rows in EOF packet"
+    (#x4     . long-flag)       ;; no effect? (only for 3.20 protocol?)
+    (#x8     . connect-with-db) ;; handshake includes schema-name
+    (#x10    . no-schema)       ;; affects parser ("don't allow database.table.column")
+    (#x20    . compress)        ;; use compression
+    (#x40    . odbc)            ;; no effect
+    (#x80    . local-files)     ;; can use "LOAD DATA LOCAL"
+    (#x100   . ignore-space)    ;; affects parser
+    (#x200   . protocol-41)     ;; use 4.1 protocol
+    (#x400   . interactive)     ;; affects timeout variable used
+    (#x800   . ssl)             ;; offer/use SSL
+    (#x1000  . ignore-sigpipe)  ;; no effect (client only)
+    (#x2000  . transactions)    ;; include transaction status in OK/EOF packet
+    (#x4000  . protocol-41-OLD) ;; deprecated
+    (#x8000  . secure-connection)   ;; deprecated
+    (#x10000 . multi-statements)    ;; no effect? (or just sets multi-results?)
+    (#x20000 . multi-results)       ;; allow multiple results from COM_QUERY
+    (#x40000 . ps-multi-results)    ;; allow multiple results from COM_STMT_EXECUTE
+    (#x80000 . plugin-auth)         ;; supports plugin authentication
+    (#x100000 . connect-attrs)      ;; supports connection attrs in HandshakeResponse packet
+    (#x200000 . plugin-auth-lenenc-client-data) ;; allows auth response longer than 255 bytes !!!
+    (#x400000 . can-handle-expired-passwords)   ;; allow limited session if password expired
+    (#x800000 . session-track)      ;; include state change info in OK packet
+    (#x1000000 . deprecate-eof)     ;; use OK instead of EOF packet at end of Text Resultset
+    (#x2000000 . optional-resultset-metadata)   ;; can omit resultset metadata (don't want)
+    (#x40000000 . ssl-verify-server-cert)       ;; no effect (client only)
+    (#x80000000 . remember-options)))   ;; no effect (client only)
 (define server-flags/encoding
   (invert-alist server-flags/decoding))
 
