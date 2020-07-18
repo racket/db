@@ -14,6 +14,7 @@ Based on protocol documentation here:
          MAX-PAYLOAD
 
          packet?
+         can-be-long-packet?
          (struct-out handshake-packet)
          (struct-out change-plugin-packet)
          (struct-out client-auth-packet)
@@ -341,6 +342,12 @@ computed string on the server can be. See also:
 (define-struct auth-more-data-packet
   (data)
   #:transparent)
+
+(define (can-be-long-packet? v)
+  (or (row-data-packet? v)
+      (binary-row-data-packet? v)
+      (long-data-packet? v)
+      (execute-packet? v)))
 
 ;; write-packet : Output-Port Packet Nat -> Nat
 ;; Returns next packet number (currently ignored)

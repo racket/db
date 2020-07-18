@@ -67,7 +67,8 @@
 
     ;; buffer-message : message -> void
     (define/private (buffer-message msg)
-      (dprintf "  >> #~s ~.s\n" next-msg-num msg)
+      (dprintf (if (can-be-long-packet? msg) "  >> #~s ~.s\n" "  >> #~s ~s\n")
+               next-msg-num msg)
       (set! msg-buffer (cons (cons msg next-msg-num) msg-buffer))
       (set! next-msg-num (add1 next-msg-num)))
 
@@ -112,7 +113,8 @@
         (error/comm fsym))
       (let-values ([(msg-num next) (parse-packet inport expectation field-dvecs)])
         (set! next-msg-num (add1 msg-num))
-        (dprintf "  << #~s ~.s\n" msg-num next)
+        (dprintf (if (can-be-long-packet? next) "  << #~s ~.s\n" "  << #~s ~s\n")
+                 msg-num next)
         ;; Update transaction status (see Transactions below)
         (when (ok-packet? next)
           (set-tx-status! fsym (bitwise-bit-set? (ok-packet-server-status next) 0)))
