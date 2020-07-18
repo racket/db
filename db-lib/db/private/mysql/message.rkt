@@ -1033,16 +1033,54 @@ computed string on the server can be. See also:
 
 (define (encode-charset charset)
   (case charset
-    ((utf8-general-ci) 33)
-    ((binary) 63)
-    (else (error/internal* 'encode-charset "unknown charset" "charset" charset))))
+    ((utf8-general-ci)         33)
+    ((binary)                  63)
+    ((utf8mb4_0900_ai_ci)     255)
+    ;; ----
+    ((utf8mb4_general_ci)      45)
+    ((utf8mb4_bin)             46)
+    ((utf8_unicode_ci)        192)
+    ((utf8_unicode_520_ci)    214)
+    ((utf8mb4_unicode_ci)     224)
+    ((utf8mb4_unicode_520_ci) 246)
+    ((utf8mb4_0900_as_cs)     278)
+    ((utf8mb4_0900_as_ci)     305)
+    ((utf8mb4_0900_bin)       309)
+    (else
+     (cond [(exact-nonnegative-integer? charset) charset]
+           [else (error/internal* 'encode-charset "unknown charset" "charset" charset)]))))
 (define (decode-charset n)
   (case n
-    ((33) 'utf8-general-ci)
-    ((63) 'binary)
-    (else 'unknown)))
+    ((255) 'utf8mb4_0900_ai_ci) ;; default in 8.0
+    ((33)  'utf8-general-ci)
+    ((63)  'binary)
+    ;; ----
+    ((45)  'utf8mb4_general_ci)
+    ((46)  'utf8mb4_bin)
+    ((192) 'utf8_unicode_ci)
+    ((214) 'utf8_unicode_520_ci)
+    ((224) 'utf8mb4_unicode_ci)
+    ((246) 'utf8mb4_unicode_520_ci)
+    ((278) 'utf8mb4_0900_as_cs)
+    ((305) 'utf8mb4_0900_as_ci)
+    ((309) 'utf8mb4_0900_bin)
+    (else n)))
 
 (define BINARY-CHARSET 63)
+
+(define (collation-type n)
+  (cond [(= n 63) 'binary]
+        [(or (utf8mb4-collation? n) (utf8mb3-collation? n)) 'utf8]
+        [else #f]))
+
+(define (utf8mb4-collation? id)
+  (or (<= 255 309)  ;; actually [255 271] [273 275] [277 294] [296 298] 300 [303 309],
+      ;; but the gaps are not assigned, so just ignore gaps
+      (<= 45 id 46)
+      (<= 224 id 247)))
+(define (utf8mb3-collation? id)
+  (or (<= 192 id 215)
+      (memv id '(33 76 83 223))))
 
 (define (encode-type type)
   (fetch type types/encoding 'encode-type))
