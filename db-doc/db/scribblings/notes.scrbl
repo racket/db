@@ -146,6 +146,45 @@ See also @secref["dbsec-connect"].
 @tt{caching_sha2_password} authentication.}]
 
 
+@section{MySQL Connection Character Set}
+
+This library communicates with MySQL servers using UTF-8 for all
+character data. MySQL has
+@hyperlink["https://mysqlserverteam.com/mysql-8-0-when-to-use-utf8mb3-over-utf8mb4/"]{two
+different UTF-8 character sets}: @tt{utf8} (sometimes called
+@tt{utf8mb3}) is a nonstandard version limited to three bytes, and
+@tt{utf8mb4} is standard UTF-8. Each character set has multiple
+collations, and the available collations and the default collation may
+vary based on
+@hyperlink["http://mysqlserverteam.com/new-collations-in-mysql-8-0-0/"]{server
+version}. This library initializes a connection's character set and
+collation as follows: @itemlist[
+
+@item{if the collation in the server handshake is either
+@tt{utf8mb4_general_ci} or @tt{utf8mb4_0900_ai_ci}, then the
+connection uses that collation, with character set @tt{utf8mb4};}
+
+@item{if the server version is at least 5.5.3, the connection uses
+collation @tt{utf8mb4_general_ci}, with character set @tt{utf8mb4};
+otherwise}
+
+@item{the connection uses collation @tt{utf8_general_ci}, with
+character set @tt{utf8} (@tt{utf8mb3}).}
+
+]
+Previous versions of this library issued a @tt{SET NAMES utf8} command
+at the beginning of every connection.
+
+@bold{Warning: } If the
+@hyperlink["https://dev.mysql.com/doc/refman/8.0/en/charset-connection.html#charset-connection-system-variables"]{client,
+connection, or result character sets} are changed (for example, using
+@tt{SET NAMES}) to a character set other than UTF-8, errors or data
+corruption may occur. Note that non-UTF-8 character sets attached to
+databases, tables, and columns do not cause problems; the server
+automatically translates between character set used for storage and
+the one used for communication.
+
+
 @section{MySQL @tt{CALL}ing Stored Procedures}
 
 MySQL @tt{CALL} statements can be executed only if they return at most
