@@ -19,7 +19,11 @@
 
 (define connection%
   (class* statement-cache% (connection<%>)
-    (init-private notice-handler)
+    (init-private notice-handler
+                  ;; custodian-b : (U #f (custodian-box Boolean))
+                  ;; If present, should have same custodian as underlying
+                  ;; ports. Useful because SSL obscures port closure.
+                  custodian-b)
     (define inport #f)
     (define outport #f)
 
@@ -174,7 +178,8 @@
     ;; connected? : -> boolean
     (define/override (connected?)
       (let ([outport outport])
-        (and outport (not (port-closed? outport)))))
+        (and outport (not (port-closed? outport))
+             (if custodian-b (custodian-box-value custodian-b) #t))))
 
     (define/public (get-dbsystem)
       dbsystem)

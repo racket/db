@@ -42,7 +42,8 @@
     (let ([c (new connection%
                   (notice-handler notice-handler)
                   (notification-handler notification-handler)
-                  (allow-cleartext-password? allow-cleartext-password?))])
+                  (allow-cleartext-password? allow-cleartext-password?)
+                  (custodian-b (make-custodian-box (current-custodian) #t)))])
       (when debug? (send c debug #t))
       (define local?
         (cond [socket

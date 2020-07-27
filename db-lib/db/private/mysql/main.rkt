@@ -32,7 +32,9 @@
   (let* ([notice-handler
           (cond [(procedure? notice-handler) notice-handler]
                 [else (make-print-notice notice-handler)])]
-         [c (new connection% (notice-handler notice-handler))])
+         [c (new connection%
+                 (notice-handler notice-handler)
+                 (custodian-b (make-custodian-box (current-custodian) #t)))])
     (when debug? (send c debug #t))
     (define transport
       (cond [socket
