@@ -7,7 +7,7 @@
          ((db:test (ispg pg92)))))
  (pgssl (db postgresql
             (#:database "rkt" #:user "rkt" #:password "rktpwd" #:port 5432 #:ssl yes)
-            ((db:test (ispg pg92)))))
+            ((db:test (ispg pg92 ssl)))))
 
  ;; ----------------------------------------
  ;; MySQL
@@ -19,7 +19,7 @@
          ((db:test (ismy my:json connect-first-ssl)))))
  (myssl (db mysql
             (#:port 3306 #:database "rkt" #:user "rkt" #:password "rktpwd" #:ssl yes)
-            ((db:test (ismy my:json)))))
+            ((db:test (ismy my:json ssl)))))
 
  ;; ----------------------------------------
  ;; ODBC
