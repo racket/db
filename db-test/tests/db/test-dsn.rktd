@@ -49,7 +49,7 @@
  (mss (db odbc-driver
           ;; Add "MARS_Connection=yes" to support multiple simultaneous open
           ;; statements, but it causes a ~15x (!!) slowdown for the test suite.
-          ("DRIVER=FreeTDS;Server=localhost;Port=1433;UID=sa;PWD=abcdEFGH89"
+          ("DRIVER=FreeTDS;Server=localhost;Port=1433;UID=sa;PWD=abcdEFGH89!"
            ;; Unlike MS drivers on win32, FreeTDS seems to need no-c-numeric.
            #:quirks (no-c-numeric))
           ((db:test (ismss)))))
