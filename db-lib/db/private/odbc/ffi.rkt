@@ -1,6 +1,7 @@
 #lang racket/base
 (require ffi/unsafe
          ffi/unsafe/define
+         ffi/winapi
          "ffi-constants.rkt")
 (provide (all-from-out "ffi-constants.rkt"))
 (provide (protect-out (all-defined-out)))
@@ -12,8 +13,8 @@
 (define-cpointer-type _sqlhstmt)
 (define-cpointer-type _sqlhdesc)
 
-(define _sqllen _long)
-(define _sqlulen _ulong)
+(define _sqllen (if win64? _int64 _long))
+(define _sqlulen (if win64? _uint64 _ulong))
 
 ;; https://docs.microsoft.com/en-us/sql/odbc/reference/odbc-64-bit-information
 (define sizeof-SQLLONG 4) ;; yes, even on 64-bit environments
