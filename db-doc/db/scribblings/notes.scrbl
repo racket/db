@@ -224,12 +224,16 @@ package in Red Hat.}
 block. In contrast, an FFI call causes all Racket threads to block
 until it completes, so @tech{FFI-based connections} can degrade the
 interactivity of a Racket program, particularly if long-running
-queries are performed using the connection. This problem can be
-avoided by creating the FFI-based connection in a separate
-@tech/reference{place} using the @racket[#:use-place] keyword
+queries are performed using the connection.
+
+This problem can be avoided by creating the FFI-based connection in a
+separate @tech/reference{place} using the @racket[#:use-place] keyword
 argument. Such a connection will not block all Racket threads during
 queries; the disadvantage is the cost of creating and communicating
-with a separate @tech/reference{place}.
+with a separate @tech/reference{place}. On Racket CS, another solution
+is to execute queries in a @seclink["Operating_System_Threads" #:doc
+'(lib "scribblings/foreign/foreign.scrbl")]{separate OS thread}; this
+solution may have lower time and memory overhead than the separate place.
 
 
 @section[#:tag "odbc-requirements"]{ODBC Requirements}
