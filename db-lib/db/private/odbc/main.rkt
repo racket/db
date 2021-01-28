@@ -53,15 +53,18 @@
              (lambda (env)
                (call-with-db 'odbc-driver-connect env
                  (lambda (db)
-                   (let ([status (SQLDriverConnect db connection-string SQL_DRIVER_NOPROMPT)])
-                     (handle-status* 'odbc-driver-connect status db)
-                     (new connection%
-                          (env env)
-                          (db db)
-                          (notice-handler notice-handler)
-                          (strict-parameter-types? strict-parameter-types?)
-                          (char-mode char-mode)
-                          (quirks quirks))))))))]))
+                   (define status
+                     (case (system-type)
+                       [(windows) (SQLDriverConnectW db connection-string SQL_DRIVER_NOPROMPT)]
+                       [else (SQLDriverConnect db connection-string SQL_DRIVER_NOPROMPT)]))
+                   (handle-status* 'odbc-driver-connect status db)
+                   (new connection%
+                        (env env)
+                        (db db)
+                        (notice-handler notice-handler)
+                        (strict-parameter-types? strict-parameter-types?)
+                        (char-mode char-mode)
+                        (quirks quirks)))))))]))
 
 (define (odbc-data-sources)
   (define server-buf (make-bytes 1024))

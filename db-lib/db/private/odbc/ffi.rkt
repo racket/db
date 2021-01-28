@@ -188,6 +188,22 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
         -> (status : _sqlreturn)
         -> status))
 
+(define-odbc SQLDriverConnectW
+  (_fun (handle connection driver-completion) ::
+        (handle : _sqlhdbc)
+        (#f : _pointer)
+        (connectionb : _bytes = (and connection
+                                     (case WCHAR-SIZE
+                                       [(2) (cpstr2 connection)]
+                                       [(4) (cpstr4 connection)])))
+        (_sqlsmallint = (if connectionb (bytes-length connectionb) 0))
+        (#f : _bytes)
+        (0 : _sqlsmallint)
+        (out-length : (_ptr o _sqlsmallint))
+        (driver-completion : _sqlusmallint)
+        -> (status : _sqlreturn)
+        -> status))
+
 (define-odbc SQLBrowseConnect
   (_fun (handle in-conn-string) ::
         (handle : _sqlhdbc)
