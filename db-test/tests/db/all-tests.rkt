@@ -7,6 +7,7 @@
          rackunit
          rackunit/text-ui
          racket/unit
+         ffi/unsafe/os-thread
          db
          "config.rkt"
          (prefix-in db-
@@ -197,21 +198,11 @@ Testing profiles are flattened, not hierarchical.
 (define (odbc-test dsn [flags null])
   (specialize-test (odbc-unit dsn flags `(#:dsn ,dsn))))
 
-(define sqlite-test
-  (specialize-test sqlite-unit))
-
-(define sqlite/os-test
-  (specialize-test sqlite/os-unit))
-
-(define sqlite/p-test
-  (specialize-test sqlite/p-unit))
-
 (define sqlite-tests
   (append (list (list "sqlite3, memory" (specialize-test sqlite-unit)))
-          (case (system-type 'vm)
-            [(chez-scheme)
-             (list (list "sqlite, memory, #:use-place=os-thread" (specialize-test sqlite/os-unit)))]
-            [else null])
+          (if (os-thread-enabled?)
+              (list (list "sqlite, memory, #:use-place=os-thread" (specialize-test sqlite/os-unit)))
+              null)
           (if (place-enabled?)
               (list (list "sqlite3, memory, #:use-place=#t" (specialize-test sqlite/p-unit)))
               null)))
