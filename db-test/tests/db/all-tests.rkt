@@ -4,6 +4,7 @@
          racket/cmdline
          racket/file
          racket/place
+         racket/runtime-path
          rackunit
          rackunit/text-ui
          racket/unit
@@ -225,13 +226,15 @@ Testing profiles are flattened, not hierarchical.
 (define gui? #f)
 (define include-sqlite? #f)
 
+(define-runtime-path testing-dsn "test-dsn.rktd")
+
 (command-line
  #:once-each
  [("--gui") "Run tests in RackUnit GUI" (set! gui? #t)]
  [("-k" "--killsafe") "Wrap with kill-safe-connection" (set! kill-safe? #t)]
  [("-s" "--sqlite3") "Run sqlite3 in-memory db tests" (set! include-sqlite? #t)]
  [("-f" "--config-file") file  "Use configuration file" (pref-file file)]
- [("-d" "--dsn-file") file "Use DSN file" (current-dsn-file (path->complete-path file))]
+ [("--testing-dsn-file") "Use testing DSN file" (current-dsn-file testing-dsn)]
  #:args labels
  (let* ([no-labels?
          (not (or include-sqlite? (pair? labels)))]
