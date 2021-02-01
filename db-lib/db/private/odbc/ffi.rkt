@@ -129,7 +129,7 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
 (define-odbc SQLSetEnvAttr
   (_fun (env : _sqlhenv)
         (attr : _sqlinteger)
-        (value-buf : _sqlinteger) ;; (the one case we care about takes int, not ptr)
+        (value-buf : _intptr) ;; (the one case we care about takes int, not ptr)
         (_sqlinteger = 0)
         -> _sqlreturn))
 
