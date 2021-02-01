@@ -596,7 +596,7 @@
            (when db*
              (set! db #f)
              (set! env #f)
-             (let ([statements (hash-map statement-table (lambda (k v) k))])
+             (let ([statements (hash-keys statement-table)])
                (for ([stmt (in-list statements)])
                  (handle-status 'disconnect (SQLFreeStmt stmt SQL_CLOSE) stmt)
                  (handle-status 'disconnect (SQLFreeHandle SQL_HANDLE_STMT stmt) stmt)))
@@ -620,7 +620,7 @@
          (let ([stmt (send pst get-handle)])
            (send pst set-handle #f)
            (when (and stmt db)
-             (hash-remove! statement-table pst)
+             (hash-remove! statement-table stmt)
              (handle-status 'free-statement (SQLFreeStmt stmt SQL_CLOSE) stmt)
              (handle-status 'free-statement (SQLFreeHandle SQL_HANDLE_STMT stmt) stmt)
              (void))))))
