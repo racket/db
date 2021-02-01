@@ -625,6 +625,9 @@
              (handle-status 'free-statement (SQLFreeHandle SQL_HANDLE_STMT stmt) stmt)
              (void))))))
 
+    (define/public (test:count-statements)
+      (hash-count statement-table))
+
     ;; Transactions
 
     (define/override (start-transaction* fsym isolation option)

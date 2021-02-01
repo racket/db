@@ -1,5 +1,6 @@
 #lang racket/unit
 (require racket/string
+         racket/class
          racket/vector
          rackunit
          "../config.rkt"
@@ -310,7 +311,19 @@
           fixintconst
           (vector 1 2 3 4 sql-null 6 sql-null 8 9 10 11 12 sql-null 14 15 sql-null
                   sql-null 18 19 20 sql-null sql-null sql-null sql-null sql-null
-                  sql-null 27 28 29 30 sql-null 32 33 sql-null 35)))))))
+                  sql-null 27 28 29 30 sql-null 32 33 sql-null 35)))))
+
+    ;; 1 February 2021: ODBC: check that statement-table is clear after one
+    ;; query (with close-on-exec?=#t); related to statement double-free bug.
+    (when (ORFLAGS 'odbc)
+      (test-case "odbc: statement-table clear after query"
+        (with-connection c
+          ;; ODBC doesn't use statement cache, and this statement is not
+          ;; explicitly prepared, so it should be closed immediately after
+          ;; execution.
+          (void (query c "SELECT N from the_numbers"))
+          (check-equal? (send c test:count-statements) 0))))
+    ))
 
 (define tx-tests
   (test-suite "transaction functions"
