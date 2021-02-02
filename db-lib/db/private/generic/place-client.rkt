@@ -1,7 +1,7 @@
 #lang racket/base
 (require racket/class
          syntax/parse/private/minimatch
-         racket/place
+         racket/place/dynamic
          racket/promise
          racket/serialize
          racket/runtime-path
