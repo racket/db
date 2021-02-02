@@ -236,10 +236,7 @@
             [(string? param)
              (case char-mode
                ((wchar)
-                (bind SQL_C_WCHAR (typeid-or SQL_WVARCHAR)
-                      (case WCHAR-SIZE
-                        ((2) (cpstr2 param))
-                        ((4) (cpstr4 param)))))
+                (bind SQL_C_WCHAR (typeid-or SQL_WVARCHAR) (string->wbuf param)))
                ((utf-8)
                 (bind SQL_C_CHAR (typeid-or SQL_VARCHAR) (string->bytes/utf-8 param)))
                ((latin-1)

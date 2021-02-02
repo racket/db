@@ -1,5 +1,7 @@
 #lang racket/base
-(require ffi/unsafe
+(require (for-syntax racket/base racket/syntax)
+         racket/stxparam
+         ffi/unsafe
          ffi/unsafe/define
          ffi/winapi
          "ffi-constants.rkt")
@@ -75,9 +77,8 @@
 
 ;; ========================================
 
-#|
-Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
-|#
+;; Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
+;; Notes on W functions: https://docs.microsoft.com/en-us/sql/odbc/reference/develop-app/unicode-function-arguments
 
 (define-values (odbc-lib WCHAR-SIZE)
   (case (system-type)
@@ -103,6 +104,50 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
 
 (define-ffi-definer define-odbc odbc-lib
   #:default-make-fail make-not-available)
+
+(begin
+  ;; Use W functions on Windows. On Unix and Mac OS, the base functions accept UTF-8.
+  (define use-W? (eq? (system-type) 'windows))
+
+  (define-syntax-parameter string->buf #f)
+  (define-syntax-parameter make-buf #f)
+  (define-syntax-parameter buf->string #f)
+  (define-syntax-parameter buf-length #f)
+
+  (define string->wbuf (case WCHAR-SIZE [(2) cpstr2] [(4) cpstr4]))
+  (define (make-wbuf len-in-chars) (make-bytes (* len-in-chars WCHAR-SIZE)))
+  (define (wbuf->string buf len-in-chars)
+    (case WCHAR-SIZE
+      [(2) (mkstr2 buf (* 2 len-in-chars))]
+      [(4) (mkstr4 buf (* 4 len-in-chars))]))
+  (define (wbuf-length buf) (quotient (bytes-length buf) WCHAR-SIZE))
+
+  (define (string->1buf s) (string->bytes/utf-8 s))
+  (define (make-1buf len-in-chars) (make-bytes len-in-chars))
+  (define (1buf->string buf len-in-chars) (bytes->string/utf-8 buf #f 0 len-in-chars))
+  (define (1buf-length buf) (bytes-length buf)))
+
+;; (define-odbc+W name type) defines name as a function that calls either the
+;; "normal" or "wide" version of the foreign function, depending on use-W?.
+(define-syntax (define-odbc+W stx)
+  (syntax-case stx ()
+    [(_ name type)
+     (with-syntax ([name1 (format-id #'name "~a1" #'name)]
+                   [nameW (format-id #'name "~aW" #'name)])
+       #'(begin (define-odbc name1
+                  (syntax-parameterize ((string->buf (make-rename-transformer #'string->1buf))
+                                        (make-buf (make-rename-transformer #'make-1buf))
+                                        (buf->string (make-rename-transformer #'1buf->string))
+                                        (buf-length (make-rename-transformer #'1buf-length)))
+                    type)
+                  #:c-id name)
+                (define-odbc nameW
+                  (syntax-parameterize ((string->buf (make-rename-transformer #'string->wbuf))
+                                        (make-buf (make-rename-transformer #'make-wbuf))
+                                        (buf->string (make-rename-transformer #'wbuf->string))
+                                        (buf-length (make-rename-transformer #'wbuf-length)))
+                    type))
+                (define name (if use-W? nameW name1))))]))
 
 (define (ok-status? n)
   (or (= n SQL_SUCCESS)
@@ -156,7 +201,6 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
                         (bytes->string/utf-8 value #f 0 len))))
   #:c-id SQLGetInfo)
 
-
 (define-odbc SQLGetFunctions
   (_fun (handle : _sqlhdbc)
         (function-id : _sqlusmallint)
@@ -164,98 +208,67 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
         -> (status : _sqlreturn)
         -> (values status (positive? supported?))))
 
-(define-odbc SQLConnect
+(define-odbc+W SQLConnect
   (_fun (handle server user auth) ::
         (handle : _sqlhdbc)
-        (server : _string)
-        ((string-utf-8-length server) : _sqlsmallint)
-        (user : _string)
-        ((if user (string-utf-8-length user) 0) : _sqlsmallint)
-        (auth : _string)
-        ((if auth (string-utf-8-length auth) 0) : _sqlsmallint)
+        (server* : _bytes = (string->buf server))
+        (_sqlsmallint = (buf-length server*))
+        (user* : _bytes = (and user (string->buf user)))
+        (_sqlsmallint = (if user* (buf-length user*) 0))
+        (auth* : _bytes = (and auth (string->buf auth)))
+        (_sqlsmallint = (if auth* (buf-length auth*) 0))
         -> _sqlreturn))
 
-(define-odbc SQLDriverConnect
+(define-odbc+W SQLDriverConnect
   (_fun (handle connection driver-completion) ::
         (handle : _sqlhdbc)
-        (#f : _pointer)
-        (connection : _string)
-        ((if connection (string-utf-8-length connection) 0) : _sqlsmallint)
-        (#f : _bytes)
-        (0 : _sqlsmallint)
+        (_pointer = #f)
+        (connection* : _bytes = (and connection (string->buf connection)))
+        (_sqlsmallint = (if connection* (buf-length connection*) 0))
+        (_bytes = #f)
+        (_sqlsmallint = 0)
         (out-length : (_ptr o _sqlsmallint))
         (driver-completion : _sqlusmallint)
         -> (status : _sqlreturn)
         -> status))
 
-(define-odbc SQLDriverConnectW
-  (_fun (handle connection driver-completion) ::
-        (handle : _sqlhdbc)
-        (#f : _pointer)
-        (connectionb : _bytes = (and connection
-                                     (case WCHAR-SIZE
-                                       [(2) (cpstr2 connection)]
-                                       [(4) (cpstr4 connection)])))
-        (_sqlsmallint = (if connectionb (bytes-length connectionb) 0))
-        (#f : _bytes)
-        (0 : _sqlsmallint)
-        (out-length : (_ptr o _sqlsmallint))
-        (driver-completion : _sqlusmallint)
-        -> (status : _sqlreturn)
-        -> status))
-
-(define-odbc SQLBrowseConnect
-  (_fun (handle in-conn-string) ::
-        (handle : _sqlhdbc)
-        (in-conn-string : _string)
-        ((if in-conn-string (string-utf-8-length in-conn-string) 0) : _sqlsmallint)
-        (out-buf : _bytes = (make-bytes 1024))
-        ((bytes-length out-buf) : _sqlsmallint)
-        (out-len : (_ptr o _sqlsmallint))
-        -> (status : _sqlreturn)
-        -> (values status
-                   (and (ok-status? status)
-                        (bytes->string/utf-8 out-buf #f 0 out-len)))))
-
-(define-odbc SQLDataSources
-  (_fun (handle direction server-buf descr-buf) ::
+(define-odbc+W SQLDataSources
+  (_fun (handle direction) ::
         (handle : _sqlhenv)
         (direction : _sqlusmallint)
-        (server-buf : _bytes)
-        ((bytes-length server-buf) : _sqlsmallint)
+        (server-buf : _bytes = (make-buf 1024))
+        (_sqlsmallint = (buf-length server-buf))
         (server-length : (_ptr o _sqlsmallint))
-        (descr-buf : _bytes)
-        ((bytes-length descr-buf) : _sqlsmallint)
+        (descr-buf : _bytes = (make-buf 1024))
+        (_sqlsmallint = (buf-length descr-buf))
         (descr-length : (_ptr o _sqlsmallint))
         -> (status : _sqlreturn)
         -> (values status
-                   (and (ok-status? status)
-                        (bytes->string/utf-8 server-buf #f 0 server-length))
-                   (and (ok-status? status)
-                        (bytes->string/utf-8 descr-buf #f 0 descr-length)))))
+                   (and (ok-status? status) (buf->string server-buf server-length))
+                   (and (ok-status? status) (buf->string descr-buf descr-length)))))
 
-(define-odbc SQLDrivers
-  (_fun (handle direction driver-buf attrs-buf) ::
+(define-odbc+W SQLDrivers
+  (_fun (handle direction) ::
         (handle : _sqlhenv)
         (direction : _sqlusmallint)
-        (driver-buf : _bytes)
-        ((bytes-length driver-buf) : _sqlsmallint)
+        (driver-buf : _bytes = (make-buf 1000))
+        (_sqlsmallint = (buf-length driver-buf))
         (driver-length : (_ptr o _sqlsmallint))
-        (attrs-buf : _bytes)
-        ((if attrs-buf (bytes-length attrs-buf) 0) : _sqlsmallint)
+        (attrs-buf : _bytes = (make-buf 2000))
+        (_sqlsmallint = (buf-length attrs-buf))
         (attrs-length : (_ptr o _sqlsmallint))
         -> (status : _sqlreturn)
         -> (if (ok-status? status)
                (values status
-                       (bytes->string/utf-8 driver-buf #f 0 driver-length)
-                       attrs-length)
+                       (buf->string driver-buf driver-length)
+                       (buf->string attrs-buf attrs-length))
                (values status #f #f))))
 
-(define-odbc SQLPrepare
+(define-odbc+W SQLPrepare
   (_fun (handle stmt) ::
         (handle : _sqlhstmt)
-        (stmt : _string)
-        ((string-utf-8-length stmt) : _sqlinteger)
+        (stmt* : _bytes = (string->buf stmt))
+        (_sqlinteger = (buf-length stmt*))
         -> _sqlreturn))
 
 (define-odbc SQLBindParameter
@@ -298,12 +311,12 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
         -> (status : _sqlreturn)
         -> (values status count)))
 
-(define-odbc SQLDescribeCol
+(define-odbc+W SQLDescribeCol
   (_fun (handle column column-buf) ::
         (handle : _sqlhstmt)
         (column : _sqlusmallint)
         (column-buf : _bytes)
-        (_sqlsmallint = (if column-buf (bytes-length column-buf) 0))
+        (_sqlsmallint = (buf-length column-buf))
         (column-len : (_ptr o _sqlsmallint))
         (data-type : (_ptr o _sqlsmallint))
         (size : (_ptr o _sqlulen))
@@ -314,8 +327,8 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
                    (and (ok-status? status)
                         column-buf
                         ;; Oracle returns garbage column name/len for TIME columns
-                        (<= 0 column-len (bytes-length column-buf))
-                        (bytes->string/utf-8 column-buf #f 0 column-len))
+                        (<= 0 column-len (buf-length column-buf))
+                        (buf->string column-buf column-len))
                    data-type size digits nullable)))
 
 (define-odbc SQLFetch
@@ -327,8 +340,8 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
         (handle : _sqlhstmt)
         (column : _sqlusmallint)
         (target-type : _sqlsmallint)
-        ((ptr-add buffer start) : _gcpointer)
-        ((- (bytes-length buffer) start) : _sqllen)
+        (_gcpointer = (ptr-add buffer start))
+        (_sqllen = (- (bytes-length buffer) start))
         (len-or-ind : (_ptr o _sqllen))
         -> (status : _sqlreturn)
         -> (values status len-or-ind)))
@@ -382,23 +395,23 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
         (handle : _sqlhandle)
         -> _sqlreturn))
 
-(define-odbc SQLGetDiagRec
+(define-odbc+W SQLGetDiagRec
   (_fun (handle-type handle rec-number) ::
         (handle-type : _sqlsmallint)
         (handle : _sqlhandle)
         (rec-number : _sqlsmallint)
-        (sql-state-buf : _bytes = (make-bytes 6))
+        (sql-state-buf : _bytes = (make-buf 6))
         (native-errcode : (_ptr o _sqlinteger))
-        (message-buf : _bytes = (make-bytes 1024))
-        ((bytes-length message-buf) : _sqlsmallint)
+        (message-buf : _bytes = (make-buf 1024))
+        (_sqlsmallint = (buf-length message-buf))
         (message-len : (_ptr o _sqlsmallint))
         -> (status : _sqlreturn)
         -> (values status
                    (and (ok-status? status)
-                        (bytes->string/utf-8 sql-state-buf #\? 0 5))
+                        (buf->string sql-state-buf 5))
                    native-errcode
                    (and (ok-status? status)
-                        (bytes->string/utf-8 message-buf #\? 0 message-len)))))
+                        (buf->string message-buf message-len)))))
 
 (define-odbc SQLEndTran
   (_fun (handle completion-type) ::
@@ -425,15 +438,15 @@ Docs at http://msdn.microsoft.com/en-us/library/ms712628%28v=VS.85%29.aspx
         (_sqlinteger = 0)
         -> _sqlreturn))
 
-(define-odbc SQLTables
+(define-odbc+W SQLTables
   (_fun (handle catalog schema table) ::
         (handle : _sqlhstmt)
-        (catalog : _string)
-        (_sqlsmallint = (if catalog (string-utf-8-length catalog) 0))
-        (schema : _string)
-        (_sqlsmallint = (if schema (string-utf-8-length schema) 0))
-        (table : _string)
-        (_sqlsmallint = (if table (string-utf-8-length table) 0))
+        (catalog* : _bytes = (and catalog (string->buf catalog)))
+        (_sqlsmallint = (if catalog* (buf-length catalog) 0))
+        (schema* : _bytes = (and schema (string->buf schema)))
+        (_sqlsmallint = (if schema* (buf-length schema) 0))
+        (table* : _string = (and table (string->buf table)))
+        (_sqlsmallint = (if table* (buf-length table) 0))
         (_bytes = #f)
         (_sqlsmallint = 0)
         -> _sqlreturn))
