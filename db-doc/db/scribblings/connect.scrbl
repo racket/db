@@ -346,11 +346,11 @@ Reports whether the SQLite native library is found, in which case
   supported:
   @itemlist[
 
-  @item{@racket['no-c-bigint] --- Don't use @tt{SQL_C_NUMERIC} to
-  fetch @tt{NUMERIC}/@tt{DECIMAL} values.}
-
-  @item{@racket['no-c-numeric] --- Don't use @tt{SQL_C_BIGINT} to bind
+  @item{@racket['no-c-bigint] --- Don't use @tt{SQL_C_BIGINT} to bind
   parameters or fetch field values.}
+
+  @item{@racket['no-c-numeric] --- Don't use @tt{SQL_C_NUMERIC} to
+  fetch @tt{NUMERIC}/@tt{DECIMAL} values.}
 
   ]
   See @secref["odbc-status"] for notes on specific ODBC drivers and
