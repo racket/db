@@ -246,7 +246,7 @@ Base connections are made using the following functions.
                  (or/c exact-nonnegative-integer? +inf.0) 10]
                 [#:busy-retry-delay busy-retry-delay
                  (and/c rational? (not/c negative?)) 0.1]
-                [#:use-place use-place (or/c boolean? 'os-thread) #f])
+                [#:use-place use-place (or/c boolean? 'os-thread 'place) #f])
          connection?]{
 
   Opens the SQLite database at the file named by @racket[database], if
@@ -272,11 +272,13 @@ Base connections are made using the following functions.
   attempted once. If after @racket[busy-retry-limit] retries the
   operation still does not succeed, an exception is raised.
 
-  If @racket[use-place] is @racket[#t], the actual connection is created in a
+  If @racket[use-place] is @racket['os-thread], then queries are executed in a
+  @seclink["Operating_System_Threads" #:doc '(lib
+  "scribblings/foreign/foreign.scrbl")]{separate OS thread}. If
+  @racket[use-place] is @racket['place], the actual connection is created in a
   distinct @tech/reference{place} for database connections and a proxy is
-  returned. If @racket[use-place] is @racket['os-thread], then queries are
-  executed in a @seclink["Operating_System_Threads" #:doc '(lib
-  "scribblings/foreign/foreign.scrbl")]{separate OS thread}. See
+  returned. If @racket[use-place] is @racket[#t], then it acts like
+  @racket['os-thread] if available, otherwise like @racket['place]. See
   @secref["ffi-concurrency"] for more information.
 
   If the connection cannot be made, an exception is raised.

@@ -84,7 +84,7 @@
        (#:mode (or/c 'read-only 'read/write 'create)
         #:busy-retry-limit (or/c exact-nonnegative-integer? +inf.0)
         #:busy-retry-delay (and/c rational? (not/c negative?))
-        #:use-place (or/c boolean? 'os-thread)
+        #:use-place (or/c boolean? 'place 'os-thread)
         #:debug? any/c)
        connection?)]
  [sqlite3-available?

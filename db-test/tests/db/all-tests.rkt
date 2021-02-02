@@ -153,9 +153,9 @@ Testing profiles are flattened, not hierarchical.
 
 (define sqlite/p-unit
   (dbconf->unit
-   (dbconf "sqlite3, memory, with #:use-place=#t"
+   (dbconf "sqlite3, memory, with #:use-place=place"
            (data-source 'sqlite3
-                        '(#:database memory #:use-place #t)
+                        '(#:database memory #:use-place place)
                         '((db:test (issl async)))))))
 
 ;; ----
@@ -205,7 +205,7 @@ Testing profiles are flattened, not hierarchical.
               (list (list "sqlite, memory, #:use-place=os-thread" (specialize-test sqlite/os-unit)))
               null)
           (if (place-enabled?)
-              (list (list "sqlite3, memory, #:use-place=#t" (specialize-test sqlite/p-unit)))
+              (list (list "sqlite3, memory, #:use-place=place" (specialize-test sqlite/p-unit)))
               null)))
 
 ;; ----
