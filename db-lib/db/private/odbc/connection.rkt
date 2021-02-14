@@ -2,6 +2,7 @@
 (require racket/class
          racket/list
          racket/math
+         racket/match
          ffi/unsafe
          ffi/unsafe/atomic
          ffi/unsafe/custodian
@@ -18,6 +19,61 @@
 (provide connection%
          handle-status*
          dbsystem)
+
+;; ----------------------------------------
+(module yn racket/base
+  (require racket/match)
+  (provide (all-defined-out))
+
+  ;; A (YN V W) is either
+  ;; - (yes V)
+  ;; - (no W)
+  ;; If omitted, W defaults to (-> Error).
+  (struct yes (v) #:prefab)
+  (struct no (v) #:prefab)
+  (define (yn? v) (or (yes? v) (no? v)))
+
+  ;; yn-ref : (YN V) -> V
+  (define (yn-ref c)
+    (match c [(yes v) v] [(no err) (err)]))
+
+  (define-syntax yndo
+    (syntax-rules (=>)
+      [(yndo)
+       (yes (void))]
+      [(yndo => e ...)
+       (let () e ...)]
+      [(yndo [#:do e ...] . more)
+       (let () e ... (yndo . more))]
+      [(yndo [okpat rhs] . more)
+       (yn-bind rhs (match-lambda [okpat (yndo . more)]))]))
+
+  (define (yn-bind c f [no-f #f])
+    (match c
+      [(yes v) (f v)]
+      [(no w) (if no-f (no (no-f w)) c)]))
+
+  (define (yn-map c f [no-f #f])
+    (match c
+      [(yes v) (yes (f v))]
+      [(no w) (if no-f (no (no-f w)) c)]))
+
+  ;; (for/yn (clause ...) body) : (YN (Listof V W)), where body : (YN V W)
+  (define-syntax for/yn
+    (syntax-rules ()
+      [(for/yn (clause ...) . body)
+       (for/fold ([acc (yes null)] #:result (yn-map acc reverse))
+                 (clause ...)
+         (yndo [vs acc]
+               [v (let () . body)]
+               => (yes (cons v vs))))]))
+
+  ;; yn-of-list : (Listof (YN V W)) -> (YN (Listof V) W)
+  (define (yn-of-list cs)
+    (cond [(for/or ([c (in-list cs)] #:when (no? c)) c) => values]
+          [else (yes (map yes-v cs))])))
+(require (submod "." yn))
+;; ----------------------------------------
 
 ;; == Connection
 
@@ -51,8 +107,8 @@
       (begin (start-atomic)
              (unless db (end-atomic) (error/disconnect-in-lock 'odbc))
              (begin0 (let () e ...) (end-atomic))))
-    (define-syntax-rule (A* e ...)
-      (begin (start-atomic) (begin0 (let () e ...) (end-atomic))))
+    ;; Operations like query1:inner may run either in Racket thread (and need
+    ;; fine-grained atomic sections) or in OS thread (already atomic).
     (define-syntax-rule (FA* #:if fine-atomic? e ...)
       (call-as-fine-atomic fine-atomic? (lambda () e ...)))
     (define/private (call-as-fine-atomic fine-atomic? proc)
@@ -95,15 +151,8 @@
     (define/public (get-dbsystem) dbsystem)
     (define/override (connected?) (and db #t))
 
-    ;; FIXME: Sadly, it is not safe to use `with-handlers` and `raise` in an OS thread.
-    (define/private (sync-call/catch proc)
-      ((sync-call
-        (lambda (os-db)
-          (with-handlers ([(lambda (e) #t) (lambda (e) (lambda ()
-                                                         (eprintf "CAUGHT\n")
-                                                         (raise e)))])
-            (call-with-values (lambda () (proc os-db))
-                              (lambda results (lambda () (apply values results)))))))))
+    (define/private (sync-call/yn proc)
+      (yn-ref (sync-call proc)))
 
     (define/public (query fsym stmt cursor?)
       (call-with-lock fsym
@@ -121,7 +170,7 @@
             (let ([typeid (field-dvec->typeid dvec)])
               (unless (supported-typeid? typeid)
                 (error/unsupported-type fsym typeid)))))
-        (sync-call/catch
+        (sync-call/yn
          (lambda (os-db)
            (query1:inner fsym (not os-db) pst params cursor?)))))
 
@@ -137,56 +186,62 @@
              (let* ([pst (prepare1 fsym stmt (not cursor?))])
                (send pst bind fsym null))]))
 
+    ;; query1:inner : ... -> (YN QueryResult)
     (define/private (query1:inner fsym fa? pst params cursor?)
       (define-syntax-rule (FA e ...) (FA* #:if fa? e ...))
       (define stmt (send pst get-handle))
-      (let ([param-bufs
-             ;; Need to keep references to all bufs until after SQLExecute.
-             (for/list ([i (in-naturals 1)]
-                        [param (in-list params)]
-                        [param-typeid (in-list (send pst get-param-typeids))])
-               (load-param fsym fa? stmt i param param-typeid))])
-        (handle-status fsym (FA (SQLExecute stmt)) stmt)
-        (void/reference-sink param-bufs))
       (define result-dvecs (send pst get-result-dvecs))
-      (FA (-set-result-descriptors stmt result-dvecs))
-      (define rows
-        (and (not cursor?)
-             (pair? result-dvecs)
-             (get-rows fsym fa? stmt (map field-dvec->typeid result-dvecs) #f +inf.0)))
-      (unless cursor? (send pst after-exec #f))
-      (cond [(and (pair? result-dvecs) (not cursor?))
-             (rows-result (map field-dvec->field-info result-dvecs) rows)]
-            [(and (pair? result-dvecs) cursor?)
-             (cursor-result (map field-dvec->field-info result-dvecs)
-                            pst
-                            (list (map field-dvec->typeid result-dvecs)
-                                  (box #f)))]
-            [else (simple-result '())]))
+      (yndo [param-bufs
+             ;; Need to keep references to all bufs until after SQLExecute.
+             (for/yn ([i (in-naturals 1)]
+                      [param (in-list params)]
+                      [param-typeid (in-list (send pst get-param-typeids))])
+               (load-param fsym fa? stmt i param param-typeid))]
+            [_ (handle-status-yn fsym (FA (SQLExecute stmt)) stmt)]
+            [#:do (begin (void/reference-sink param-bufs)
+                         (FA (-set-result-descriptors stmt result-dvecs)))]
+            [rows
+             (cond [(and (not cursor?) (pair? result-dvecs))
+                    (get-rows fsym fa? stmt (map field-dvec->typeid result-dvecs) #f +inf.0)]
+                   [else (yes #f)])]
+            [#:do (unless cursor? (send pst after-exec #f))]
+            => (yes
+                (cond [(and (pair? result-dvecs) (not cursor?))
+                       (rows-result (map field-dvec->field-info result-dvecs) rows)]
+                      [(and (pair? result-dvecs) cursor?)
+                       (cursor-result (map field-dvec->field-info result-dvecs)
+                                      pst
+                                      (list (map field-dvec->typeid result-dvecs)
+                                            (box #f)))]
+                      [else (simple-result '())]))))
 
-    ;; FIXME
     (define/public (fetch/cursor fsym cursor fetch-size)
       (let ([pst (cursor-result-pst cursor)]
             [extra (cursor-result-extra cursor)])
         (send pst check-owner fsym this pst)
         (call-with-lock fsym
           (lambda ()
-            (let ([typeids (car extra)]
-                  [end-box (cadr extra)])
-              (cond [(unbox end-box) #f]
-                    [else
-                     (define fa? #t)
-                     (begin0 (get-rows fsym fa? (send pst get-handle) typeids end-box fetch-size)
-                       (when (unbox end-box)
-                         (send pst after-exec #f)))]))))))
+            (match-define (list typeids end-box) extra)
+            (cond [(unbox end-box) #f]
+                  [else
+                   (sync-call/yn
+                    (lambda (os-db)
+                      (define fa? (not os-db))
+                      (yndo [rows (let ([stmt (send pst get-handle)])
+                                    (get-rows fsym fa? stmt typeids end-box fetch-size))]
+                            [#:do (when (unbox end-box)
+                                    (send pst after-exec #f))]
+                            => (yes rows))))])))))
 
+    ;; load-param : ... -> (YN Any)
+    ;; Returns refs that must not be GC'd until after SQLExecute.
     (define/private (load-param fsym fa? stmt i param typeid)
       (define-syntax-rule (FA e ...) (FA* #:if fa? e ...))
       ;; typeid-or : Integer -> Integer
       ;; Replace SQL_UNKNOWN_TYPE with given alternative typeid
       (define (typeid-or alt-typeid) (if (= typeid SQL_UNKNOWN_TYPE) alt-typeid typeid))
 
-      ;; bind : Integer Integer (U Bytes #f) [Byte Byte] -> Any
+      ;; bind : Integer Integer (U Bytes #f) [Byte Byte] -> (YN Any)
       ;; NOTE: param buffers must not move between bind and execute.
       ;; Returns refs that must not be GC'd until after SQLExecute.
       (define (bind ctype sqltype value [prec 0] [scale 0])
@@ -199,10 +254,10 @@
                 [else (error 'bind "internal error: bad value: ~e" value)]))
         (define status
           (FA (SQLBindParameter stmt i ctype sqltype prec scale valbuf vallen lenbuf)))
-        (handle-status fsym status stmt)
-        (if valbuf (cons valbuf lenbuf) lenbuf))
+        (yndo [_ (handle-status-yn fsym status stmt)]
+              => (yes (if valbuf (cons valbuf lenbuf) lenbuf))))
 
-      ;; do-load-number : (U Real (Cons Integer Nat)) Integer -> Any
+      ;; do-load-number : (U Real (Cons Integer Nat)) Integer -> (YN Any)
       (define (do-load-number param typeid)
         (cond [(or (= typeid SQL_NUMERIC) (= typeid SQL_DECIMAL))
                ;; param = (cons mantissa exponent), scaled integer
@@ -223,12 +278,14 @@
                                     null))]
                              [numeric-bytes
                               (apply bytes-append (bytes prec* ex sign-byte) digits-bytess)])
-                        ;; Call bind first.
-                        (bind SQL_C_NUMERIC typeid numeric-bytes prec* ex)
-                        ;; Then set descriptor attributes.
-                        (FA (-set-numeric-descriptors
-                             (SQLGetStmtAttr/HDesc stmt SQL_ATTR_APP_PARAM_DESC)
-                             i prec* ex numeric-bytes)))]
+                        (yndo
+                         ;; Call bind first.
+                         [result (bind SQL_C_NUMERIC typeid numeric-bytes prec* ex)]
+                         ;; Then set descriptor attributes.
+                         [#:do (FA (-set-numeric-descriptors
+                                    (SQLGetStmtAttr/HDesc stmt SQL_ATTR_APP_PARAM_DESC)
+                                    i prec* ex numeric-bytes))]
+                         => (yes result)))]
                      [else
                       (define s (scaled-integer->decimal-string ma ex))
                       (bind SQL_C_CHAR typeid (string->bytes/latin-1 s) prec* ex)])]
@@ -256,9 +313,9 @@
                      [else ;; real
                       (do-load-number param SQL_DOUBLE)])]
               ;; -- Otherwise error --
-              [else
-               (error 'load-param "internal error: bad type `~a` for parameter: ~e"
-                      typeid param)]))
+              [else (no (lambda ()
+                          (error 'load-param "internal error: bad type `~a` for parameter: ~e"
+                                 typeid param)))]))
 
       ;; -- load-param body --
       (cond [(or (real? param) (pair? param))
@@ -332,9 +389,10 @@
                       (integer->integer-bytes (sql-timestamp-nanosecond x) 4 #f))))]
             [(sql-null? param)
              (bind SQL_C_CHAR SQL_VARCHAR #f)]
-            [else (error/internal* fsym "cannot convert given value to SQL type"
-                                   '("given" value) param
-                                   "typeid" typeid)]))
+            [else (no (lambda ()
+                        (error/internal* fsym "cannot convert given value to SQL type"
+                                         '("given" value) param
+                                         "typeid" typeid)))]))
 
     (define/private (-set-result-descriptors stmt dvecs) ;; pre: atomic
       (for ([i (in-naturals 1)]
@@ -362,39 +420,42 @@
       ;; MUST be at least as large as any int/float type (see get-num)
       ;; SHOULD be at least as large as any structures (see uses of get-int-list)
       (define scratchbuf (make-bytes 50))
-      ;; fetch* : ??
-      (define (fetch* fetched)
+      ;; fetch* : ... -> (YN (Listof Vector))
+      (define (fetch* fetched acc)
         (cond [(< fetched limit)
-               (cond [(fetch)
-                      => (lambda (c) (cons c (fetch* (add1 fetched))))]
-                     [else
-                      (when end-box (set-box! end-box #t))
-                      (handle-status fsym (FA (SQLFreeStmt stmt SQL_CLOSE)) stmt)
-                      (handle-status fsym (FA (SQLFreeStmt stmt SQL_RESET_PARAMS)) stmt)
-                      null])]
-              [else null]))
-      ;; fetch : ??
+               (match (fetch)
+                 [(yes (? vector? row))
+                  (fetch* (add1 fetched) (cons row acc))]
+                 [(yes #f)
+                  (when end-box (set-box! end-box #t))
+                  (yndo [_ (handle-status-yn fsym (FA (SQLFreeStmt stmt SQL_CLOSE)) stmt)]
+                        [_ (handle-status-yn fsym (FA (SQLFreeStmt stmt SQL_RESET_PARAMS)) stmt)]
+                        => (yes (reverse acc)))]
+                 [(? no? c) c])]
+              [else (yes (reverse acc))]))
+      ;; fetch : ... -> (YN (U #f Vector))
       (define (fetch)
         (define s (FA (SQLFetch stmt)))
-        (cond [(= s SQL_NO_DATA) #f]
+        (cond [(= s SQL_NO_DATA) (yes #f)]
               [(= s SQL_SUCCESS)
                (define column-count (length result-typeids))
                (define vec (make-vector column-count))
-               (for ([i (in-range column-count)]
-                     [typeid (in-list result-typeids)])
-                 (vector-set! vec i (get-column fsym fa? stmt (add1 i) typeid scratchbuf)))
-               vec]
-              [else (handle-status fsym s stmt)]))
+               (yndo [_ (for/yn ([i (in-range column-count)]
+                                 [typeid (in-list result-typeids)])
+                          (yndo [v (get-column fsym fa? stmt (add1 i) typeid scratchbuf)]
+                                [#:do (vector-set! vec i v)]))]
+                     => (yes vec))]
+              [else (handle-status-yn fsym s stmt)]))
       ;; ----
-      (fetch* 0))
+      (fetch* 0 null))
 
     (define/private (get-column fsym fa? stmt i typeid scratchbuf)
       (define-syntax-rule (FA e ...) (FA* #:if fa? e ...))
       (define-syntax-rule (get-num size ctype convert convert-arg ...)
         (let-values ([(status ind) (FA (SQLGetData stmt i ctype scratchbuf 0))])
-          (handle-status fsym status stmt)
-          (cond [(= ind SQL_NULL_DATA) sql-null]
-                [else (convert scratchbuf convert-arg ... 0 size)])))
+          (yndo [_ (handle-status-yn fsym status stmt)]
+                => (yes (cond [(= ind SQL_NULL_DATA) sql-null]
+                              [else (convert scratchbuf convert-arg ... 0 size)])))))
       (define (get-int size ctype)
         (get-num size ctype integer-bytes->integer     #t (system-big-endian?)))
       (define (get-real ctype)
@@ -403,9 +464,9 @@
         (let* ([buflen (apply + sizes)]
                [buf (if (<= buflen (bytes-length scratchbuf)) scratchbuf (make-bytes buflen))])
           (let-values ([(status ind) (FA (SQLGetData stmt i ctype buf 0))])
-            (handle-status fsym status stmt)
-            (cond [(= ind SQL_NULL_DATA) sql-null]
-                  [else (parse-int-list buf sizes)]))))
+            (yndo [_ (handle-status-yn fsym status stmt)]
+                  => (yes (cond [(= ind SQL_NULL_DATA) sql-null]
+                                [else (parse-int-list buf sizes)]))))))
       (define (parse-int-list buf sizes)
         (let ([in (open-input-bytes buf)])
           (for/list ([size (in-list sizes)])
@@ -413,8 +474,7 @@
               ((1) (read-byte in))
               ((2) (integer-bytes->integer (read-bytes 2 in) #f))
               ((4) (integer-bytes->integer (read-bytes 4 in) #f))
-              (else (error/internal
-                     'get-int-list "bad size: ~e" size))))))
+              (else (error/internal 'get-int-list "bad size: ~e" size))))))
 
       (define (get-varbuf ctype ntlen convert)
         ;; ntlen is null-terminator length (1 for char data, 0 for binary, ??? for wchar)
@@ -433,40 +493,42 @@
         ;; ODBC spec says illegal and Win32 ODBC rejects). Seems unsafe to use 0-length
         ;; buffer (spec is unclear, DB2 docs say len>0...???).
 
-        ;; loop : bytes nat (listof bytes) -> any
+        ;; loop : Bytes Nat (Listof Bytes) -> (YN Any)
         ;; start is next place to write, but data starts at 0
         ;; rchunks is reversed list of previous chunks (for data longer than scratchbuf)
         ;; Small data done in one iteration; most long data done in two. Only long data
         ;; without known size (???) should take more than two iterations.
         (define (loop buf start rchunks)
           (let-values ([(status len-or-ind) (FA (SQLGetData stmt i ctype buf start))])
-            (handle-status fsym status stmt #:ignore-ok/info? #t)
-            (cond [(= len-or-ind SQL_NULL_DATA) sql-null]
-                  [(= len-or-ind SQL_NO_TOTAL)
-                   ;; didn't fit in buf, and we have no idea how much more there is
-                   ;; start = 0
-                   (let* ([data-end (- (bytes-length buf) ntlen)])
-                     (loop buf 0 (cons (subbytes buf 0 data-end) rchunks)))]
-                  [else
-                   (let ([len (+ start len-or-ind)])
-                     (cond [(<= 0 len (- (bytes-length buf) ntlen))
-                            ;; fit in buf
-                            (cond [(pair? rchunks)
-                                   ;; add ntlen bytes for null-terminator...
-                                   (let* ([chunk (subbytes buf 0 (+ len ntlen))]
-                                          [chunks (append (reverse rchunks) (list chunk))]
-                                          [complete (apply bytes-append chunks)])
-                                     ;; ... but compensate so len is correct
-                                     (convert complete (- (bytes-length complete) ntlen) #t))]
-                                  [else
-                                   ;; buf already null-terminated, len correct
-                                   (convert buf len #f)])]
+            (yndo [_ (handle-status-yn fsym status stmt #:ignore-ok/info? #t)]
+                  => (cond [(= len-or-ind SQL_NULL_DATA) (yes sql-null)]
+                           [(= len-or-ind SQL_NO_TOTAL)
+                            ;; Didn't fit in buf, and we have no idea how much more there is
+                            ;; start = 0
+                            (let* ([data-end (- (bytes-length buf) ntlen)])
+                              (loop buf 0 (cons (subbytes buf 0 data-end) rchunks)))]
                            [else
-                            ;; didn't fit in buf, but we know how much more there is
-                            (let* ([len-got (- (bytes-length buf) ntlen)]
-                                   [newbuf (make-bytes (+ len ntlen))])
-                              (bytes-copy! newbuf 0 buf start len-got)
-                              (loop newbuf len-got rchunks))]))])))
+                            (let ([len (+ start len-or-ind)])
+                              (cond [(<= 0 len (- (bytes-length buf) ntlen))
+                                     ;; fit in buf
+                                     (cond [(pair? rchunks)
+                                            ;; add ntlen bytes for null-terminator...
+                                            (let* ([chunk (subbytes buf 0 (+ len ntlen))]
+                                                   [chunks (append (reverse rchunks) (list chunk))]
+                                                   [complete (apply bytes-append chunks)])
+                                              ;; ... but compensate so len is correct
+                                              (yes (convert complete
+                                                            (- (bytes-length complete) ntlen)
+                                                            #t)))]
+                                           [else
+                                            ;; buf already null-terminated, len correct
+                                            (yes (convert buf len #f))])]
+                                    [else
+                                     ;; didn't fit in buf, but we know how much more there is
+                                     (let* ([len-got (- (bytes-length buf) ntlen)]
+                                            [newbuf (make-bytes (+ len ntlen))])
+                                       (bytes-copy! newbuf 0 buf start len-got)
+                                       (loop newbuf len-got rchunks))]))]))))
         (loop scratchbuf 0 null))
 
       (define (get-string/latin-1)
@@ -492,6 +554,8 @@
                       (if (and fresh? (= len (bytes-length buf)))
                           buf
                           (subbytes buf 0 len)))))
+      (define (get-col-fail what v)
+        (no (lambda () (error 'get-column "internal error: can't get ~s from ~e" what v))))
 
       (cond [(or (= typeid SQL_CHAR)
                  (= typeid SQL_VARCHAR)
@@ -503,23 +567,29 @@
             [(or (= typeid SQL_DECIMAL)
                  (= typeid SQL_NUMERIC))
              (cond [(quirk-c-numeric-ok?)
-                    (let ([fields (get-int-list '(1 1 1 4 4 4 4) SQL_ARD_TYPE)])
-                      (cond [(list? fields)
-                             (let* ([precision (first fields)]
-                                    [scale (second fields)]
-                                    [sign (case (third fields) ((0) -1) ((1) 1))]
-                                    [ma (let loop ([lst (cdddr fields)])
-                                          (if (pair? lst)
-                                              (+ (* (loop (cdr lst)) (expt 2 32))
-                                                 (car lst))
-                                              0))])
-                               ;; (eprintf "numeric: ~s\n" fields)
-                               (* sign ma (expt 10 (- scale))))]
-                            [(sql-null? fields) sql-null]))]
+                    (yn-map (get-int-list '(1 1 1 4 4 4 4) SQL_ARD_TYPE)
+                            (lambda (fields)
+                              (cond [(list? fields)
+                                     (let* ([precision (first fields)]
+                                            [scale (second fields)]
+                                            [sign (case (third fields) ((0) -1) ((1) 1))]
+                                            [ma (let loop ([lst (cdddr fields)])
+                                                  (if (pair? lst)
+                                                      (+ (* (loop (cdr lst)) (expt 2 32))
+                                                         (car lst))
+                                                      0))])
+                                       ;; (eprintf "numeric: ~s\n" fields)
+                                       (* sign ma (expt 10 (- scale))))]
+                                    [(sql-null? fields) sql-null])))]
                    [else
-                    (define s (get-string/latin-1))
-                    (or (string->number s 10 'number-or-false 'decimal-as-exact)
-                        (error 'get-column "internal error getting numeric field: ~e" s))])]
+                    (yndo [s (get-string/latin-1)]
+                          => (cond [(string->number s 10 'number-or-false 'decimal-as-exact)
+                                    => yes]
+                                   [else
+                                    (no (lambda ()
+                                          (error 'get-column
+                                                 "internal error getting numeric field: ~e"
+                                                 s)))]))])]
             [(or (= typeid SQL_SMALLINT)
                  (= typeid SQL_INTEGER)
                  (= typeid SQL_TINYINT))
@@ -528,41 +598,45 @@
              (cond [(quirk-c-bigint-ok?)
                     (get-int 8 SQL_C_SBIGINT)]
                    [else
-                    (define s (get-string/latin-1))
-                    (or (string->number s 10 'number-or-false 'decimal-as-exact)
-                        (error 'get-column "internal error getting bigint field: ~e" s))])]
+                    (yndo [s (get-string/latin-1)]
+                          => (cond [(string->number s 10 'number-or-false 'decimal-as-exact) => yes]
+                                   [else (get-col-fail "bigint" s)]))])]
             [(or (= typeid SQL_REAL)
                  (= typeid SQL_FLOAT)
                  (= typeid SQL_DOUBLE))
              (get-real SQL_C_DOUBLE)]
             [(or (= typeid SQL_BIT))
-             (case (get-int 4 SQL_C_LONG)
-               ((0) #f)
-               ((1) #t)
-               (else (error 'get-column "internal error: SQL_BIT")))]
+             (yndo [n (get-int 4 SQL_C_LONG)]
+                   => (case n
+                        [(0) (yes #f)]
+                        [(1) (yes #t)]
+                        [else (get-col-fail "SQL_BIT" n)]))]
             [(or (= typeid SQL_BINARY)
                  (= typeid SQL_VARBINARY))
              (get-bytes)]
             [(= typeid SQL_TYPE_DATE)
-             (let ([fields (get-int-list '(2 2 2) SQL_C_TYPE_DATE)])
-               (cond [(list? fields) (apply sql-date fields)]
-                     [(sql-null? fields) sql-null]))]
+             (yn-map (get-int-list '(2 2 2) SQL_C_TYPE_DATE)
+                     (lambda (fields)
+                       (cond [(list? fields) (apply sql-date fields)]
+                             [(sql-null? fields) sql-null])))]
             [(= typeid SQL_TYPE_TIME)
-             (let ([fields (get-int-list '(2 2 2) SQL_C_TYPE_TIME)])
-               (cond [(list? fields) (apply sql-time (append fields (list 0 #f)))]
-                     [(sql-null? fields) sql-null]))]
+             (yn-map (get-int-list '(2 2 2) SQL_C_TYPE_TIME)
+                     (lambda (fields)
+                       (cond [(list? fields) (apply sql-time (append fields (list 0 #f)))]
+                             [(sql-null? fields) sql-null])))]
             [(= typeid SQL_SS_TIME2)
-             (define buf (get-bytes))
-             (cond [(sql-null? buf) sql-null]
-                   [else
-                    ;;(eprintf "-- ss_time2 : ~s\n" (bytes->list buf))
-                    (let ([fields (parse-int-list buf '(2 2 2 2 4))])
-                      (define-values (h m s _pad ns) (apply values fields))
-                      (sql-time h m s ns #f))])]
+             (yn-map (get-bytes)
+                     (lambda (buf)
+                       (cond [(sql-null? buf) sql-null]
+                             [else
+                              (let ([fields (parse-int-list buf '(2 2 2 2 4))])
+                                (define-values (h m s _pad ns) (apply values fields))
+                                (sql-time h m s ns #f))])))]
             [(= typeid SQL_TYPE_TIMESTAMP)
-             (let ([fields (get-int-list '(2 2 2 2 2 2 4) SQL_C_TYPE_TIMESTAMP)])
-               (cond [(list? fields) (apply sql-timestamp (append fields (list #f)))]
-                     [(sql-null? fields) sql-null]))]
+             (yn-map (get-int-list '(2 2 2 2 2 2 4) SQL_C_TYPE_TIMESTAMP)
+                     (lambda (fields)
+                       (cond [(list? fields) (apply sql-timestamp (append fields (list #f)))]
+                             [(sql-null? fields) sql-null])))]
             [else (get-string)]))
 
     (define/public (prepare fsym stmt close-on-exec?)
@@ -572,23 +646,25 @@
           (prepare1 fsym stmt close-on-exec?))))
 
     (define/private (prepare1 fsym sql close-on-exec?)
-      (define-values (stmt param-typeids result-dvecs)
-        (sync-call/catch
+      (match-define (list stmt param-typeids result-dvecs)
+        (sync-call/yn
          (lambda (os-db)
            (define fa? (not os-db))
            (define-syntax-rule (FA e ...) (FA* #:if fa? e ...))
-           (define-values (status1 stmt) (FA (SQLAllocHandle SQL_HANDLE_STMT db)))
-           (unless (ok-status? status1)
-             (FA (SQLFreeHandle SQL_HANDLE_STMT stmt))
-             (handle-status fsym status1 db))
-           (define status2 (FA (SQLPrepare stmt sql)))
-           (unless (ok-status? status2)
-             (FA (SQLFreeHandle SQL_HANDLE_STMT stmt))
-             (handle-status fsym status2 stmt))
-           (hash-set! statement-table stmt #t)
-           (define param-typeids (describe-params fsym fa? stmt))
-           (define result-dvecs (describe-result-columns fsym fa? stmt))
-           (values stmt param-typeids result-dvecs))))
+           (yndo [stmt (let-values ([(status stmt)
+                                     (FA (SQLAllocHandle SQL_HANDLE_STMT (or os-db db)))])
+                         (unless (ok-status? status)
+                           (FA (SQLFreeHandle SQL_HANDLE_STMT stmt)))
+                         (yndo [_ (handle-status-yn fsym status (or os-db db))]
+                               => (yes stmt)))]
+                 [_ (let ([status (FA (SQLPrepare stmt sql))])
+                      (unless (ok-status? status)
+                        (FA (SQLFreeHandle SQL_HANDLE_STMT stmt)))
+                      (handle-status-yn fsym status stmt))]
+                 [#:do (hash-set! statement-table stmt #t)]
+                 [param-typeids (describe-params fsym fa? stmt)]
+                 [result-dvecs (describe-result-columns fsym fa? stmt)]
+                 => (yes (list stmt param-typeids result-dvecs))))))
       (new prepared-statement%
            (handle stmt)
            (close-on-exec? close-on-exec?)
@@ -599,25 +675,27 @@
            (owner this)))
 
     (define/private (describe-params fsym fa? stmt)
-      (let-values ([(status param-count) (FA* #:if fa? (SQLNumParams stmt))])
-        (handle-status fsym status stmt)
-        (for/list ([i (in-range 1 (add1 param-count))])
-          (cond [use-describe-param?
-                 (let-values ([(status type size digits nullable)
-                               (FA* #:if fa? (SQLDescribeParam stmt i))])
-                   (handle-status fsym status stmt)
-                   type)]
-                [else SQL_UNKNOWN_TYPE]))))
+      (define-values (status param-count) (FA* #:if fa? (SQLNumParams stmt)))
+      (yndo [_ (handle-status-yn fsym status stmt)]
+            =>
+            (for/yn ([i (in-range 1 (add1 param-count))])
+              (cond [use-describe-param?
+                     (let-values ([(status type size digits nullable)
+                                   (FA* #:if fa? (SQLDescribeParam stmt i))])
+                       (yndo [_ (handle-status-yn fsym status stmt)]
+                             => (yes type)))]
+                    [else (yes SQL_UNKNOWN_TYPE)]))))
 
     (define/private (describe-result-columns fsym fa? stmt)
-      (let-values ([(status result-count) (FA* #:if fa? (SQLNumResultCols stmt))]
-                   [(scratchbuf) (make-bytes 200)])
-        (handle-status fsym status stmt)
-        (for/list ([i (in-range 1 (add1 result-count))])
-          (let-values ([(status name type size digits nullable)
-                        (FA* #:if fa? (SQLDescribeCol stmt i scratchbuf))])
-            (handle-status fsym status stmt)
-            (vector name type size digits)))))
+      (define scratchbuf (make-bytes 200))
+      (define-values (status result-count) (FA* #:if fa? (SQLNumResultCols stmt)))
+      (yndo [_ (handle-status-yn fsym status stmt)]
+            =>
+            (for/yn ([i (in-range 1 (add1 result-count))])
+              (let-values ([(status name type size digits nullable)
+                            (FA* #:if fa? (SQLDescribeCol stmt i scratchbuf))])
+                (yndo [_ (handle-status-yn fsym status stmt)]
+                      => (yes (vector name type size digits)))))))
 
     (define/override (-get-do-disconnect)
       ;; Save and clear fields
@@ -633,16 +711,21 @@
       (set! creg #f)
       ;; Close db connection
       (lambda ()
-        ;; Free all of connection's prepared statements. This will leave
-        ;; pst objects with dangling foreign objects, so don't try to free
-        ;; them again---check that db is not-#f.
-        (for ([stmt (in-list stmts)])
-          (handle-status 'disconnect (SQLFreeStmt stmt SQL_CLOSE) stmt)
-          (handle-status 'disconnect (SQLFreeHandle SQL_HANDLE_STMT stmt) stmt))
-        (handle-status 'disconnect (SQLDisconnect db*) db*)
-        (handle-status 'disconnect (SQLFreeHandle SQL_HANDLE_DBC db*))
-        (handle-status 'disconnect (SQLFreeHandle SQL_HANDLE_ENV env*))
-        (void/reference-sink dont-gc)))
+        (define yns
+          (list
+           ;; Free all of connection's prepared statements. This will leave
+           ;; pst objects with dangling foreign objects, so don't try to free
+           ;; them again---check that db is not-#f.
+           (for/list ([stmt (in-list stmts)])
+             (list (handle-status-yn 'disconnect (SQLFreeStmt stmt SQL_CLOSE) stmt)
+                   (handle-status-yn 'disconnect (SQLFreeHandle SQL_HANDLE_STMT stmt) stmt)))
+           (handle-status-yn 'disconnect (SQLDisconnect db*) db*)
+           (handle-status-yn 'disconnect (SQLFreeHandle SQL_HANDLE_DBC db*))
+           (handle-status-yn 'disconnect (SQLFreeHandle SQL_HANDLE_ENV env*))))
+        ;; Report any errors in previous calls
+        (lambda ()
+          (void/reference-sink dont-gc)
+          (yn-ref (yn-of-list (flatten yns))))))
 
     (define/public (get-base) this)
 
@@ -675,51 +758,66 @@
       (when option
         ;; No options supported
         (raise-argument-error fsym "#f" option))
-      (let* ([db (get-db fsym)]
-             [ok-levels
-              (let-values ([(status value)
-                            (A (SQLGetInfo db SQL_TXN_ISOLATION_OPTION))])
-                (begin0 value (handle-status fsym status db)))]
-             [default-level
-               (let-values ([(status value)
-                             (A (SQLGetInfo db SQL_DEFAULT_TXN_ISOLATION))])
-                 (begin0 value (handle-status fsym status db)))]
-             [requested-level
-              (case isolation
-                ((serializable) SQL_TXN_SERIALIZABLE)
-                ((repeatable-read) SQL_TXN_REPEATABLE_READ)
-                ((read-committed) SQL_TXN_READ_COMMITTED)
-                ((read-uncommitted) SQL_TXN_READ_UNCOMMITTED)
-                (else
-                 ;; MySQL ODBC returns 0 for default level, seems no good.
-                 ;; So if 0, use serializable.
-                 (if (zero? default-level) SQL_TXN_SERIALIZABLE default-level)))])
-        (when (zero? (bitwise-and requested-level ok-levels))
-          (error* fsym "requested isolation level is not available"
-                  '("isolation level" value) isolation))
-        (let ([status (A (SQLSetConnectAttr db SQL_ATTR_TXN_ISOLATION requested-level))])
-          (handle-status fsym status db)))
-      (let ([status (A (SQLSetConnectAttr db SQL_ATTR_AUTOCOMMIT SQL_AUTOCOMMIT_OFF))])
-        (handle-status fsym status db)
-        (set-tx-status! fsym #t)
-        (void)))
+      (define requested-level
+        (let* ([db (get-db fsym)]
+               [ok-levels
+                (let-values ([(status value)
+                              (A (SQLGetInfo db SQL_TXN_ISOLATION_OPTION))])
+                  (begin0 value (handle-status fsym status db)))]
+               [default-level
+                 (let-values ([(status value)
+                               (A (SQLGetInfo db SQL_DEFAULT_TXN_ISOLATION))])
+                   (begin0 value (handle-status fsym status db)))]
+               [requested-level
+                (case isolation
+                  ((serializable) SQL_TXN_SERIALIZABLE)
+                  ((repeatable-read) SQL_TXN_REPEATABLE_READ)
+                  ((read-committed) SQL_TXN_READ_COMMITTED)
+                  ((read-uncommitted) SQL_TXN_READ_UNCOMMITTED)
+                  (else
+                   ;; MySQL ODBC returns 0 for default level, seems no good.
+                   ;; So if 0, use serializable.
+                   (if (zero? default-level) SQL_TXN_SERIALIZABLE default-level)))])
+          (when (zero? (bitwise-and requested-level ok-levels))
+            (error* fsym "requested isolation level is not available"
+                    '("isolation level" value) isolation))
+          requested-level))
+      (sync-call/yn
+       (lambda (os-db)
+         (define fa? (not os-db))
+         (define-syntax-rule (FA e ...) (FA* #:if fa? e ...))
+         (yndo [_ (let ([status
+                         (FA (SQLSetConnectAttr (or os-db db)
+                                                SQL_ATTR_TXN_ISOLATION
+                                                requested-level))])
+                    (handle-status-yn fsym status (or os-db db)))]
+               [_ (let ([status
+                         (FA (SQLSetConnectAttr (or os-db db)
+                                                SQL_ATTR_AUTOCOMMIT
+                                                SQL_AUTOCOMMIT_OFF))])
+                    (handle-status-yn fsym status (or os-db db)))]
+               [#:do (set-tx-status! fsym #t)]
+               => (yes (void))))))
 
     (define/override (end-transaction* fsym mode _savepoint)
       ;; _savepoint = #f, because nested transactions not supported on ODBC
-      (sync-call/catch
+      (sync-call/yn
        (lambda (os-db)
          (define fa? (not os-db))
-         (define db (or os-db (get-db fsym)))
+         (define-syntax-rule (FA e ...) (FA* #:if fa? e ...))
          (define completion-type
            (case mode
              ((commit) SQL_COMMIT)
              ((rollback) SQL_ROLLBACK)))
-         (handle-status fsym (FA* #:if fa? (SQLEndTran db completion-type)) db)
-         (let ([status (FA* #:if fa? (SQLSetConnectAttr db SQL_ATTR_AUTOCOMMIT SQL_AUTOCOMMIT_ON))])
-           (handle-status fsym status db)
-           ;; commit/rollback can fail; don't change status until possible error handled
-           (set-tx-status! fsym #f)
-           (void)))))
+         (yndo [_ (let ([status (FA (SQLEndTran (or os-db db) completion-type))])
+                    (handle-status-yn fsym status (or os-db db)))]
+               [_ (let ([status (FA (SQLSetConnectAttr (or os-db db)
+                                                       SQL_ATTR_AUTOCOMMIT
+                                                       SQL_AUTOCOMMIT_ON))])
+                    (handle-status-yn fsym status (or os-db db)))]
+               ;; commit/rollback can fail; don't change status until possible error handled
+               [#:do (set-tx-status! fsym #f)]
+               => (yes (void))))))
 
     ;; GetTables
 
@@ -763,7 +861,19 @@
 
     (define/private (handle-status who s [handle #f]
                                    #:ignore-ok/info? [ignore-ok/info? #f])
-      (define (handle-error e)
+      (yn-ref (handle-status-yn who s handle #:ignore-ok/info? ignore-ok/info?)))
+
+    (define/private (handle-status-yn who s [handle #f]
+                                      #:ignore-ok/info? [ignore-ok/info? #f])
+      (define result
+        (handle-status-yn* who s handle
+                           #:ignore-ok/info? ignore-ok/info?
+                           #:on-notice (lambda (sqlstate msg)
+                                         (add-delayed-call!
+                                          (lambda () (notice-handler sqlstate msg))))))
+      ;; Be careful: shouldn't do rollback before we call handle-status*
+      ;; just in case rollback destroys statement with diagnostic records.
+      (when (no? result)
         ;; On error, driver may rollback whole transaction, last statement, etc.
         ;; Options:
         ;;   1) if transaction was rolled back, set autocommit=true
@@ -779,16 +889,8 @@
         (let ([db db])
           (when db
             (when (get-tx-status)
-              (set-tx-status! who 'invalid))))
-        (raise e))
-      ;; Be careful: shouldn't do rollback before we call handle-status*
-      ;; just in case rollback destroys statement with diagnostic records.
-      (with-handlers ([exn:fail? handle-error])
-        (handle-status* who s handle
-                        #:ignore-ok/info? ignore-ok/info?
-                        #:on-notice (lambda (sqlstate msg)
-                                      (add-delayed-call!
-                                       (lambda () (notice-handler sqlstate msg)))))))
+              (set-tx-status! who 'invalid)))))
+      result)
     ))
 
 (define shutdown-connection
@@ -805,31 +907,39 @@
 (define (handle-status* who s [handle #f]
                         #:ignore-ok/info? [ignore-ok/info? #f]
                         #:on-notice [on-notice void])
+  (yn-ref (handle-status-yn* who s handle
+                             #:ignore-ok/info? ignore-ok/info?
+                             #:on-notice on-notice)))
+
+(define (handle-status-yn* who s [handle #f]
+                           #:ignore-ok/info? [ignore-ok/info? #f]
+                           #:on-notice [on-notice void])
   (cond [(= s SQL_SUCCESS_WITH_INFO)
          (when (and handle (not ignore-ok/info?))
            (diag-info who handle 'notice on-notice))
-         s]
+         (yes s)]
         [(= s SQL_ERROR)
-         (when handle (diag-info who handle 'error #f))
-         (error who "unknown error (no diagnostic returned)")]
-        [else s]))
+         (cond [handle (no (diag-info who handle 'error #f))]
+               [else (no (lambda () (error who "unknown error (no diagnostic returned)")))])]
+        [else (yes s)]))
 
+;; diag-info : ... 'notice ... -> Void
+;; diag-info : ... 'error  ... -> (-> Error)
 (define (diag-info who handle mode on-notice)
   (let ([handle-type
          (cond [(sqlhenv? handle) SQL_HANDLE_ENV]
                [(sqlhdbc? handle) SQL_HANDLE_DBC]
-               [(sqlhstmt? handle) SQL_HANDLE_STMT]
-               [else
-                (error/internal* 'diag-info "unknown handle type" '("handle" value) handle)])])
+               [(sqlhstmt? handle) SQL_HANDLE_STMT])])
     (let-values ([(status sqlstate native-errcode message)
                   (SQLGetDiagRec handle-type handle 1)])
       (case mode
         ((error)
-         (raise-sql-error who sqlstate
-                          (or message "<an ODBC function failed with no diagnostic message>")
-                          `((code . ,sqlstate)
-                            (message . ,message)
-                            (native-errcode . ,native-errcode))))
+         (lambda ()
+           (raise-sql-error who sqlstate
+                            (or message "<an ODBC function failed with no diagnostic message>")
+                            `((code . ,sqlstate)
+                              (message . ,message)
+                              (native-errcode . ,native-errcode)))))
         ((notice)
          (on-notice sqlstate message))))))
 
