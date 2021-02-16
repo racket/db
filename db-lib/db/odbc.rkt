@@ -13,7 +13,7 @@
         #:strict-parameter-types? boolean?
         #:character-mode (or/c 'wchar 'utf-8 'latin-1)
         #:quirks (listof symbol?)
-        #:use-place boolean?)
+        #:use-place (or/c boolean? 'place 'os-thread))
        connection?)]
  [odbc-driver-connect
   (->* (string?)
@@ -21,7 +21,7 @@
         #:strict-parameter-types? boolean?
         #:character-mode (or/c 'wchar 'utf-8 'latin-1)
         #:quirks (listof symbol?)
-        #:use-place boolean?)
+        #:use-place (or/c boolean? 'place 'os-thread))
        connection?)]
  [odbc-data-sources
   (-> (listof (list/c string? string?)))]

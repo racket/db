@@ -1,5 +1,6 @@
 #lang racket/base
 (require racket/class
+         ffi/unsafe/os-thread
          db/private/generic/interfaces
          db/private/generic/common
          db/private/generic/place-client
@@ -19,24 +20,31 @@
                       #:character-mode [char-mode 'wchar]
                       #:quirks [quirks '()]
                       #:use-place [use-place #f])
-  (cond [use-place
-         (place-connect (list 'odbc dsn user auth strict-parameter-types? char-mode quirks)
-                        odbc-proxy%)]
-        [else
-         (let ([notice-handler (make-handler notice-handler "notice")])
-           (call-with-env 'odbc-connect
-             (lambda (env)
-               (call-with-db 'odbc-connect env
-                 (lambda (db)
-                   (let ([status (SQLConnect db dsn user auth)])
-                     (handle-status* 'odbc-connect status db)
-                     (new connection%
-                          (env env)
-                          (db db)
-                          (notice-handler notice-handler)
-                          (strict-parameter-types? strict-parameter-types?)
-                          (char-mode char-mode)
-                          (quirks quirks))))))))]))
+  (define (connect)
+    (let ([notice-handler (make-handler notice-handler "notice")])
+      (call-with-env 'odbc-connect
+        (lambda (env)
+          (call-with-db 'odbc-connect env
+            (lambda (db)
+              (let ([status (SQLConnect db dsn user auth)])
+                (handle-status* 'odbc-connect status db)
+                (new connection%
+                     (env env)
+                     (db db)
+                     (notice-handler notice-handler)
+                     (strict-parameter-types? strict-parameter-types?)
+                     (char-mode char-mode)
+                     (quirks quirks)))))))))
+  (let ([use-place (normalize-use-place use-place)])
+    (case use-place
+      [(place)
+       (place-connect (list 'odbc dsn user auth strict-parameter-types? char-mode quirks)
+                      odbc-proxy%)]
+      [(os-thread)
+       (define c (connect))
+       (send c use-os-thread #t)
+       c]
+      [else (connect)])))
 
 (define (odbc-driver-connect connection-string
                              #:notice-handler [notice-handler void]
@@ -44,24 +52,36 @@
                              #:character-mode [char-mode 'wchar]
                              #:quirks [quirks '()]
                              #:use-place [use-place #f])
-  (cond [use-place
-         (place-connect (list 'odbc-driver connection-string strict-parameter-types? char-mode quirks)
-                        odbc-proxy%)]
-        [else
-         (let ([notice-handler (make-handler notice-handler "notice")])
-           (call-with-env 'odbc-driver-connect
-             (lambda (env)
-               (call-with-db 'odbc-driver-connect env
-                 (lambda (db)
-                   (define status (SQLDriverConnect db connection-string SQL_DRIVER_NOPROMPT))
-                   (handle-status* 'odbc-driver-connect status db)
-                   (new connection%
-                        (env env)
-                        (db db)
-                        (notice-handler notice-handler)
-                        (strict-parameter-types? strict-parameter-types?)
-                        (char-mode char-mode)
-                        (quirks quirks)))))))]))
+  (define (connect)
+    (let ([notice-handler (make-handler notice-handler "notice")])
+      (call-with-env 'odbc-driver-connect
+        (lambda (env)
+          (call-with-db 'odbc-driver-connect env
+            (lambda (db)
+              (define status (SQLDriverConnect db connection-string SQL_DRIVER_NOPROMPT))
+              (handle-status* 'odbc-driver-connect status db)
+              (new connection%
+                   (env env)
+                   (db db)
+                   (notice-handler notice-handler)
+                   (strict-parameter-types? strict-parameter-types?)
+                   (char-mode char-mode)
+                   (quirks quirks))))))))
+  (let ([use-place (normalize-use-place use-place)])
+    (case use-place
+      [(place)
+       (place-connect (list 'odbc-driver connection-string strict-parameter-types? char-mode quirks)
+                      odbc-proxy%)]
+      [(os-thread)
+       (define c (connect))
+       (send c use-os-thread #t)
+       c]
+      [else (connect)])))
+
+(define (normalize-use-place use-place)
+  (cond [(eq? use-place #t)
+         (if (os-thread-enabled?) 'os-thread 'place)]
+        [else use-place]))
 
 (define (odbc-data-sources)
   (call-with-env 'odbc-data-sources
