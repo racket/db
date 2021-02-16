@@ -31,11 +31,11 @@
  (ora11 (db odbc-driver
             ("DRIVER=Oracle 11g ODBC driver;DBQ=localhost:1521/XE;UID=system;PWD=orapwd"
              #:quirks (no-c-bigint))
-            ((db:test (isora sleep-before-connect)))))
+            ((db:test (isora sleep-before-connect no-date no-time)))))
  (ora19 (db odbc-driver
             ("DRIVER=Oracle 19 ODBC driver;DBQ=localhost:1521/XE;UID=system;PWD=orapwd"
              #:quirks (no-c-bigint))
-            ((db:test (isora sleep-before-connect)))))
+            ((db:test (isora sleep-before-connect no-date no-time)))))
 
  ;; DB2 ODBC
  ;; Note: needs LD_LIBRARY_PATH to point to appropriate ODBC libs.
@@ -45,12 +45,18 @@
            #:quirks (no-c-numeric))
           ((db:test (isdb2 keep-unused-connection)))))
 
+ ;; MS SQL Server ODBC via FreeTDS
+ (mssf (db odbc-driver
+           ;; Add "MARS_Connection=yes" to support multiple simultaneous open
+           ;; statements, but it causes a ~15x (!!) slowdown for the test suite.
+           ("DRIVER=FreeTDS;Server=localhost;Port=1433;UID=sa;PWD=abcdEFGH89!"
+            ;; Unlike MS drivers on win32, FreeTDS seems to need no-c-numeric.
+            #:quirks (no-c-numeric))
+           ((db:test (ismss no-interleave)))))
+
  ;; MS SQL Server ODBC
- (mss (db odbc-driver
-          ;; Add "MARS_Connection=yes" to support multiple simultaneous open
-          ;; statements, but it causes a ~15x (!!) slowdown for the test suite.
-          ("DRIVER=FreeTDS;Server=localhost;Port=1433;UID=sa;PWD=abcdEFGH89!"
-           ;; Unlike MS drivers on win32, FreeTDS seems to need no-c-numeric.
-           #:quirks (no-c-numeric))
-          ((db:test (ismss)))))
+ (mssn (db odbc-driver
+           ("DRIVER=ODBC Driver 17 for SQL Server;Server=localhost;Port=1433;UID=sa;PWD=abcdEFGH89!"
+            #:quirks ())
+           ((db:test (ismss no-interleave)))))
  )

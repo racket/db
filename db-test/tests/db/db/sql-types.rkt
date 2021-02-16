@@ -480,19 +480,21 @@
         (check-table-rt* "abc" check-trim-string=?)
         (check-table-rt* "abcde" check-trim-string=?)))
 
-    (type-test-case '(date)
-      (setup-temp-table)
-      (for ([d+s some-dates])
-        (check-roundtrip (car d+s))
-        (check-value/text (car d+s) (cadr d+s))))
+    (unless (ORFLAGS 'no-date)
+      (type-test-case '(date)
+        (setup-temp-table)
+        (for ([d+s some-dates])
+          (check-roundtrip (car d+s))
+          (check-value/text (car d+s) (cadr d+s)))))
 
-    (type-test-case '(time)
-      (setup-temp-table) ;; MySQL (<5.7) does not *store* fractional seconds
-      (define frac-seconds-ok? (FLAG 'postgresql))
-      (for ([t+s some-times])
-        (when (or frac-seconds-ok? (zero? (sql-time-nanosecond (car t+s))))
-          (check-roundtrip (car t+s))
-          (check-value/text (car t+s) (cadr t+s)))))
+    (unless (ORFLAGS 'no-time)
+      (type-test-case '(time)
+        (setup-temp-table) ;; MySQL (<5.7) does not *store* fractional seconds
+        (define frac-seconds-ok? (FLAG 'postgresql))
+        (for ([t+s some-times])
+          (when (or frac-seconds-ok? (zero? (sql-time-nanosecond (car t+s))))
+            (check-roundtrip (car t+s))
+            (check-value/text (car t+s) (cadr t+s))))))
 
     (type-test-case '(timetz)
       (setup-temp-table)

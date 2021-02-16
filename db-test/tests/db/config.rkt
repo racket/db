@@ -56,7 +56,7 @@
   (define (connect-and-setup)
     (when (FLAG 'sleep-before-connect)
       ;; Oracle ODBC tests spuriously fail if connections are made too quickly
-      (sleep 0.01))
+      (sleep 0.02))
     (let [(cx (connect-for-test))]
       (when (FLAG 'can-temp-table)
         (query-exec cx
@@ -111,7 +111,9 @@
   ;;                        (eg to warm up MySQL 8 sha2 auth cache)
   ;;   'keep-unused-connection = keep an unused connection open throughout tests
   ;;                             (eg DB2 time goes from 150s to 0.6s)
-  ;;   'place, 'os-thread = use-place mode (for ffi-based connection)
+  ;;   'place, 'os-thread = use-place mode (for ffi-based connection))
+  ;;   'no-interleave = connection cannot interleave queries (eg, MS SQL Server w/o MARS)
+  ;;   'no-time, 'no-date = skip date, time tests (eg, Oracle)
 
   (define allflags (cons dbsys dbflags))
   (define (add-flag! . fs) (set! allflags (append fs allflags)))
