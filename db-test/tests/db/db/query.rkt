@@ -315,7 +315,7 @@
 
     ;; 1 February 2021: ODBC: check that statement-table is clear after one
     ;; query (with close-on-exec?=#t); related to statement double-free bug.
-    (when (ORFLAGS 'odbc)
+    (when (and (ORFLAGS 'odbc) (not (ORFLAGS 'place)))
       (test-case "odbc: statement-table clear after query"
         (with-connection c
           ;; ODBC doesn't use statement cache, and this statement is not

@@ -111,6 +111,7 @@
   ;;                        (eg to warm up MySQL 8 sha2 auth cache)
   ;;   'keep-unused-connection = keep an unused connection open throughout tests
   ;;                             (eg DB2 time goes from 150s to 0.6s)
+  ;;   'place, 'os-thread = use-place mode (for ffi-based connection)
 
   (define allflags (cons dbsys dbflags))
   (define (add-flag! . fs) (set! allflags (append fs allflags)))

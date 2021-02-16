@@ -122,6 +122,33 @@ Testing profiles are flattened, not hierarchical.
 
 ;; Set below by command-line parsing
 (define kill-safe? #f)
+(define add-use-place? #f)
+
+(define (expand-dbconf x)
+  (match x
+    [(dbconf dbtestname (and r (data-source connector args exts)))
+     (define (ext-add new-vs)
+       (define vs
+         (cond [(assq 'db:test exts) => (match-lambda [(list _ vs) vs])]
+               [else null]))
+       (cons (list 'db:test (append new-vs vs)) exts))
+     (cond [(and (memq connector '(odbc odbc-driver sqlite3))
+                 (not (memq '#:use-place args)))
+            (append
+             (list x)
+             (if (os-thread-enabled?)
+                 (list (dbconf (format "~a, use-place=os-thread" dbtestname)
+                               (data-source connector
+                                            (list* '#:use-place 'os-thread args)
+                                            (ext-add '(async os-thread)))))
+                 null)
+             (if (place-enabled?)
+                 (list (dbconf (format "~a, use-place=place" dbtestname)
+                               (data-source connector
+                                            (list* '#:use-place 'place args)
+                                            (ext-add '(async place)))))
+                 null))]
+           [else (list x)])]))
 
 (define (dbconf->unit x)
   (match x
@@ -133,30 +160,9 @@ Testing profiles are flattened, not hierarchical.
        (if ssl? (dsn-connect #:ssl 'yes r) (connect)))
      (unit-from-context database^)]))
 
-(define (odbc-unit dbtestname dbflags dbargs)
-  (dbconf->unit
-   (dbconf dbtestname (data-source 'odbc dbargs `((db:test ,dbflags))))))
-
-(define sqlite-unit
-  (dbconf->unit
-   (dbconf "sqlite3, memory"
-           (data-source 'sqlite3
-                        '(#:database memory)
-                        '((db:test (issl)))))))
-
-(define sqlite/os-unit
-  (dbconf->unit
-   (dbconf "sqlite3, memory, with #:use-place=os-thread"
-           (data-source 'sqlite3
-                        '(#:database memory #:use-place os-thread)
-                        '((db:test (issl async)))))))
-
-(define sqlite/p-unit
-  (dbconf->unit
-   (dbconf "sqlite3, memory, with #:use-place=place"
-           (data-source 'sqlite3
-                        '(#:database memory #:use-place place)
-                        '((db:test (issl async)))))))
+(define sqlite3-dbconf
+  (dbconf "sqlite3, memory"
+          (data-source 'sqlite3 '(#:database memory) '((db:test (issl))))))
 
 ;; ----
 
@@ -196,18 +202,6 @@ Testing profiles are flattened, not hierarchical.
   (define-values/invoke-unit (specialize-test@ db@) (import) (export test^))
   test)
 
-(define (odbc-test dsn [flags null])
-  (specialize-test (odbc-unit dsn flags `(#:dsn ,dsn))))
-
-(define sqlite-tests
-  (append (list (list "sqlite3, memory" (specialize-test sqlite-unit)))
-          (if (os-thread-enabled?)
-              (list (list "sqlite, memory, #:use-place=os-thread" (specialize-test sqlite/os-unit)))
-              null)
-          (if (place-enabled?)
-              (list (list "sqlite3, memory, #:use-place=place" (specialize-test sqlite/p-unit)))
-              null)))
-
 ;; ----
 
 (define (make-all-tests dbconfs)
@@ -234,16 +228,25 @@ Testing profiles are flattened, not hierarchical.
  [("-k" "--killsafe") "Wrap with kill-safe-connection" (set! kill-safe? #t)]
  [("-s" "--sqlite3") "Run sqlite3 in-memory db tests" (set! include-sqlite? #t)]
  [("-f" "--config-file") file  "Use configuration file" (pref-file file)]
+ [("-p" "--add-use-place") "Add #:use-place variants" (set! add-use-place? #t)]
  [("--testing-dsn-file") "Use testing DSN file" (current-dsn-file testing-dsn)]
  #:args labels
- (let* ([no-labels?
-         (not (or include-sqlite? (pair? labels)))]
-        [tests ;; (listof (cons string (listof test-suite)))
-         (append (cond [(or include-sqlite? no-labels?)
-                        sqlite-tests]
-                       [else null])
-                 (for/list ([label labels])
-                   (cons label (make-all-tests (get-dbconf (string->symbol label))))))])
+ (let ()
+   (define no-labels? (not (or include-sqlite? (pair? labels))))
+   (when no-labels? (set! add-use-place? #t))
+   (define dbconfs
+     (append (if (or include-sqlite? no-labels?)
+                 (list sqlite3-dbconf)
+                 null)
+             (append*
+              (for/list ([label labels])
+                (get-dbconf (string->symbol label))))))
+   (define dbconfs2
+     (cond [add-use-place? (apply append (map expand-dbconf dbconfs))]
+           [else dbconfs]))
+   (define tests (for/list ([dbconf dbconfs2])
+                   (cons (format "~a" (dbconf-name dbconf))
+                         (make-all-tests (list dbconf)))))
    (cond [gui?
           (let* ([test/gui (dynamic-require 'rackunit/gui 'test/gui)])
             (apply test/gui #:wait? #t (append* (map cdr tests))))]
