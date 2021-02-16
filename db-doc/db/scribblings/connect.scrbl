@@ -310,7 +310,7 @@ Reports whether the SQLite native library is found, in which case
                         (or/c 'wchar 'utf-8 'latin-1)
                         'wchar]
                        [#:quirks quirks (listof symbol?) null]
-                       [#:use-place use-place boolean? #f])
+                       [#:use-place use-place (or/c boolean? 'place 'os-thread) #f])
          connection?]{
 
   Creates a connection to the ODBC Data Source named @racket[dsn]. The
@@ -356,9 +356,8 @@ Reports whether the SQLite native library is found, in which case
   See @secref["odbc-status"] for notes on specific ODBC drivers and
   recommendations for connection options.
 
-  If @racket[use-place] is true, the actual connection is created in
-  a distinct @tech/reference{place} for database connections and a
-  proxy is returned; see @secref["ffi-concurrency"].
+  The @racket[use-place] argument is interpreted the same as for
+  @racket[sqlite3-connect].
 
   If the connection cannot be made, an exception is raised.
 
@@ -375,7 +374,7 @@ Reports whether the SQLite native library is found, in which case
                                (or/c 'wchar 'utf-8 'latin-1)
                                'wchar]
                               [#:quirks quirks (listof symbol?) null]
-                              [#:use-place use-place boolean? #f])
+                              [#:use-place use-place (or/c boolean? 'os-thread 'place) #f])
          connection?]{
 
   Creates a connection using an ODBC connection string containing a
