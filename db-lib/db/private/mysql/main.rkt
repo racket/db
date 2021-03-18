@@ -36,22 +36,26 @@
                  (notice-handler notice-handler)
                  (custodian-b (make-custodian-box (current-custodian) #t)))])
     (when debug? (send c debug #t))
-    (define transport
-      (cond [socket
-             (let ([socket (if (eq? socket 'guess)
-                               (mysql-guess-socket-path)
-                               socket)])
-               (let-values ([(in out) (unix-socket-connect socket)])
-                 (send c attach-to-ports in out)))
-             'socket]
-            [else
-             (let ([server (or server "localhost")]
-                   [port (or port 3306)])
-               (let-values ([(in out) (tcp-connect server port)])
-                 (send c attach-to-ports in out)))
-             'tcp]))
-    (send c start-connection-protocol database user password transport ssl ssl-context
-          (and (not socket) (or server "localhost")) allow-cleartext-password?)
+    (with-handlers
+       ([exn? (lambda (e)
+                (send c disconnect* #f)
+                (raise e))])
+      (define transport
+        (cond [socket
+               (let ([socket (if (eq? socket 'guess)
+                                 (mysql-guess-socket-path)
+                                 socket)])
+                 (let-values ([(in out) (unix-socket-connect socket)])
+                   (send c attach-to-ports in out)))
+               'socket]
+              [else
+               (let ([server (or server "localhost")]
+                     [port (or port 3306)])
+                 (let-values ([(in out) (tcp-connect server port)])
+                   (send c attach-to-ports in out)))
+               'tcp]))
+      (send c start-connection-protocol database user password transport ssl ssl-context
+            (and (not socket) (or server "localhost")) allow-cleartext-password?))
     c))
 
 ;; make-print-notification : output-port -> number string -> void
