@@ -45,18 +45,22 @@
                   (allow-cleartext-password? allow-cleartext-password?)
                   (custodian-b (make-custodian-box (current-custodian) #t)))])
       (when debug? (send c debug #t))
-      (define local?
-        (cond [socket
-               (define-values (in out) (unix-socket-connect socket))
-               (send c attach-to-ports in out ssl ssl-context #f)
-               #t]
-              [else
-               (let ([server (or server "localhost")]
-                     [port (or port 5432)])
-                 (define-values (in out) (tcp-connect server port))
-                 (send c attach-to-ports in out ssl ssl-context server)
-                 (equal? server "localhost"))]))
-      (send c start-connection-protocol database user password local?)
+      (with-handlers
+         ([exn? (lambda (e)
+                  (send c disconnect* #f)
+                  (raise e))])
+        (define local?
+          (cond [socket
+                 (define-values (in out) (unix-socket-connect socket))
+                 (send c attach-to-ports in out ssl ssl-context #f)
+                 #t]
+                [else
+                 (let ([server (or server "localhost")]
+                       [port (or port 5432)])
+                   (define-values (in out) (tcp-connect server port))
+                   (send c attach-to-ports in out ssl ssl-context server)
+                   (equal? server "localhost"))]))
+        (send c start-connection-protocol database user password local?))
       c)))
 
 (define socket-paths

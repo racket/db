@@ -20,5 +20,9 @@
       [(yes) (ssl-connect server port ssl-context)]))
   (define c (new connection% (inport in) (outport out)))
   (when debug? (send c debug #t))
-  (send c start-connection-protocol user password)
+  (with-handlers
+     ([exn? (lambda (e)
+              (send c disconnect* #f)
+              (raise e))])
+    (send c start-connection-protocol user password))
   c)
