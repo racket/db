@@ -46,10 +46,8 @@
 (check-equal? (query-value c "select rktstrapp('abc','de','f')")
               "abcdef")
 
-(when #f
-  ;; FIXME: errors are not propagated from aggregate functions correctly
-  (check-exn #rx"contract violation"
-             (lambda () (query-value c "select rktstrapp('abc','d',5,'f')"))))
+(check-exn #rx"contract violation"
+           (lambda () (query-value c "select rktstrapp('abc','d',5,'f')")))
 
 (check-equal? (query-value c "select rktconcat(1,2,'c','d')")
               "12cd")
