@@ -34,8 +34,9 @@
 (define (bytes->non-moving-pointer bs)
   (define len (bytes-length bs))
   ;; Note: avoid (malloc 0); returns #f, SQL Server driver treats as SQL NULL!
-  (define copy (malloc (max 1 len) 'atomic-interior))
+  (define copy (malloc (add1 len) 'atomic-interior))
   (memcpy copy bs len)
+  (ptr-set! copy _byte len 0)
   copy)
 
 ;; cpstr{2,4} : String -> Bytes
@@ -104,6 +105,14 @@
 
 (define-ffi-definer define-odbc odbc-lib
   #:default-make-fail make-not-available)
+
+(define _immobile-bytes
+  ;; Makes an immobile copy; can't use for mutable buffers.
+  (make-ctype _pointer
+              (lambda (v)
+                (if (bytes? v) (bytes->non-moving-pointer v) v))
+              (lambda (v)
+                (error '_immobile-bytes "not allowed as result type"))))
 
 (begin
   ;; Use W functions on Windows. On Unix and Mac OS, the base functions accept UTF-8.
@@ -209,21 +218,23 @@
         -> (values status (positive? supported?))))
 
 (define-odbc+W SQLConnect
-  (_fun (handle server user auth) ::
+  (_fun #:blocking? #t
+        (handle server user auth) ::
         (handle : _sqlhdbc)
-        (server* : _bytes = (string->buf server))
+        (server* : _immobile-bytes = (string->buf server))
         (_sqlsmallint = (buf-length server*))
-        (user* : _bytes = (and user (string->buf user)))
+        (user* : _immobile-bytes = (and user (string->buf user)))
         (_sqlsmallint = (if user* (buf-length user*) 0))
-        (auth* : _bytes = (and auth (string->buf auth)))
+        (auth* : _immobile-bytes = (and auth (string->buf auth)))
         (_sqlsmallint = (if auth* (buf-length auth*) 0))
         -> _sqlreturn))
 
 (define-odbc+W SQLDriverConnect
-  (_fun (handle connection driver-completion) ::
+  (_fun #:blocking? #t
+        (handle connection driver-completion) ::
         (handle : _sqlhdbc)
         (_pointer = #f)
-        (connection* : _bytes = (and connection (string->buf connection)))
+        (connection* : _immobile-bytes = (and connection (string->buf connection)))
         (_sqlsmallint = (if connection* (buf-length connection*) 0))
         (_bytes = #f)
         (_sqlsmallint = 0)
@@ -265,9 +276,10 @@
                (values status #f #f))))
 
 (define-odbc+W SQLPrepare
-  (_fun (handle stmt) ::
+  (_fun #:blocking? #t
+        (handle stmt) ::
         (handle : _sqlhstmt)
-        (stmt* : _bytes = (string->buf stmt))
+        (stmt* : _immobile-bytes = (string->buf stmt))
         (_sqlinteger = (buf-length stmt*))
         -> _sqlreturn))
 
@@ -286,7 +298,8 @@
         -> _sqlreturn))
 
 (define-odbc SQLExecute
-  (_fun (handle : _sqlhstmt)
+  (_fun #:blocking? #t
+        (handle : _sqlhstmt)
         -> _sqlreturn))
 
 (define-odbc SQLNumParams
@@ -332,7 +345,8 @@
                    data-type size digits nullable)))
 
 (define-odbc SQLFetch
-  (_fun _sqlhstmt
+  (_fun #:blocking? #t
+        _sqlhstmt
         -> _sqlreturn))
 
 (define-odbc SQLGetData
@@ -378,20 +392,24 @@
   #:c-id SQLSetDescField)
 
 (define-odbc SQLFreeStmt
-  (_fun (handle : _sqlhstmt)
+  (_fun #:blocking? #t
+        (handle : _sqlhstmt)
         (option : _sqlusmallint)
         -> _sqlreturn))
 
 (define-odbc SQLCloseCursor
-  (_fun (handle : _sqlhstmt)
+  (_fun #:blocking? #t
+        (handle : _sqlhstmt)
         -> _sqlreturn))
 
 (define-odbc SQLDisconnect
-  (_fun (handle : _sqlhdbc)
+  (_fun #:blocking? #t
+        (handle : _sqlhdbc)
         -> _sqlreturn))
 
 (define-odbc SQLFreeHandle
-  (_fun (handle-type : _sqlsmallint)
+  (_fun #:blocking? #t
+        (handle-type : _sqlsmallint)
         (handle : _sqlhandle)
         -> _sqlreturn))
 
@@ -414,7 +432,8 @@
                         (buf->string message-buf message-len)))))
 
 (define-odbc SQLEndTran
-  (_fun (handle completion-type) ::
+  (_fun #:blocking? #t
+        (handle completion-type) ::
         (_sqlsmallint = SQL_HANDLE_DBC)
         (handle : _sqlhandle)
         (completion-type : _sqlsmallint)
