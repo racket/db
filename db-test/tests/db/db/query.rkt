@@ -660,24 +660,33 @@
         (check-prep-once
          (lambda () (virtual-connection (connection-pool connect-and-setup))))))))
 
+(define-syntax-rule (with-custodian-shutdown . body)
+  (let ([cust (make-custodian)])
+    (parameterize ((current-custodian cust))
+      (begin0 (let () . body)
+        (custodian-shutdown-all cust)))))
+
 (define pool-tests
   (test-suite "connection pools"
     (test-case "lease, limit, release"
-      (let* ([counter 0]
-             [p (connection-pool (lambda () (set! counter (+ 1 counter)) (connect-for-test))
-                                 #:max-connections 2)]
-             [c1 (connection-pool-lease p)]
-             [c2 (connection-pool-lease p)])
-        ;; Two created
-        (check-equal? counter 2)
-        ;; Can't create new one yet
-        (check-exn exn:fail? (lambda () (connection-pool-lease p)))
-        ;; But if we free one...
-        (disconnect c2)
-        (check-equal? (connected? c2) #f)
-        (let ([c3 (connection-pool-lease p)])
-          (check-equal? counter 2 "not new") ;; used idle, not new connection
-          (check-equal? (connected? c3) #t))))
+      ;; Proxy connections are not released when unreachable by user program
+      ;; (pool keeps strong reference), so use custodian to clean up test case.
+      (with-custodian-shutdown
+        (let* ([counter 0]
+               [p (connection-pool (lambda () (set! counter (+ 1 counter)) (connect-for-test))
+                                   #:max-connections 2)]
+               [c1 (connection-pool-lease p)]
+               [c2 (connection-pool-lease p)])
+          ;; Two created
+          (check-equal? counter 2)
+          ;; Can't create new one yet
+          (check-exn exn:fail? (lambda () (connection-pool-lease p)))
+          ;; But if we free one...
+          (disconnect c2)
+          (check-equal? (connected? c2) #f)
+          (let ([c3 (connection-pool-lease p)])
+            (check-equal? counter 2 "not new") ;; used idle, not new connection
+            (check-equal? (connected? c3) #t)))))
     (test-case "release on evt"
       (let* ([p (connection-pool connect-for-test #:max-connections 2)]
              [sema (make-semaphore 0)]
