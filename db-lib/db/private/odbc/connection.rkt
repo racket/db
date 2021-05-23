@@ -91,7 +91,7 @@
     (init strict-parameter-types?)
     (super-new)
 
-    (define creg (register-custodian-shutdown this shutdown-connection))
+    (define creg (register-custodian-shutdown this shutdown-connection #:ordered? #t))
     (register-finalizer this shutdown-connection)
 
     ;; -- Quirks --
