@@ -222,6 +222,8 @@ Testing profiles are flattened, not hierarchical.
 
 (define-runtime-path testing-dsn "test-dsn.rktd")
 
+(define cust (make-custodian))
+
 (command-line
  #:once-each
  [("--gui") "Run tests in RackUnit GUI" (set! gui? #t)]
@@ -247,11 +249,20 @@ Testing profiles are flattened, not hierarchical.
    (define tests (for/list ([dbconf dbconfs2])
                    (cons (format "~a" (dbconf-name dbconf))
                          (make-all-tests (list dbconf)))))
-   (cond [gui?
-          (let* ([test/gui (dynamic-require 'rackunit/gui 'test/gui)])
-            (apply test/gui #:wait? #t (append* (map cdr tests))))]
-         [else
-          (for ([test tests])
-            (printf "Running ~s tests\n" (car test))
-            (time (run-tests (make-test-suite (car test) (cdr test))))
-            (newline))])))
+   (parameterize ((current-custodian cust))
+     (cond [gui?
+            (let* ([test/gui (dynamic-require 'rackunit/gui 'test/gui)])
+              (apply test/gui #:wait? #t (append* (map cdr tests))))]
+           [else
+            (for ([test tests])
+              (printf "Running ~s tests\n" (car test))
+              (time (run-tests (make-test-suite (car test) (cdr test))))
+              (newline))]))))
+
+;; The tests generally don't explicitly disconnect their connections. The
+;; following encourages finalizer shutdown or forces custodian shutdown, useful
+;; for testing with eg ASan (see racket/racket#3839).
+(when #t
+  (for ([i 10]) (sync (system-idle-evt)) (collect-garbage)))
+(when #f
+  (custodian-shutdown-all cust))
