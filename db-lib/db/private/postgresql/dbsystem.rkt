@@ -19,7 +19,8 @@
          typeid->type-reader
          typeid->format
          use-integer-datetimes?
-         classify-pg-sql)
+         classify-pg-sql
+         register-custom-type!)
 
 (define postgresql-dbsystem%
   (class* dbsystem-base% (dbsystem<%>)
@@ -106,27 +107,51 @@
 
 ;; ============================================================
 
+(define custom-types (make-hasheqv))
+
+(struct pg-custom-type (fmt reader writer)
+  #:transparent)
+
+(define (register-custom-type! tid reader writer)
+  (hash-set! custom-types tid (pg-custom-type 1 reader writer)))
+
+(define-syntax-rule (define-custom-lookups (id accessor) ...)
+  (begin
+    (define (id tid)
+      (cond
+        [(hash-ref custom-types tid #f) => accessor]
+        [else #f]))
+    ...))
+
+(define-custom-lookups
+  [custom-type-fmt    pg-custom-type-fmt]
+  [custom-type-reader pg-custom-type-reader]
+  [custom-type-writer pg-custom-type-writer])
+
+
+;; ============================================================
+
 (define-syntax-rule (type-table (type-list typeid->type describe-typeid)
                                 (typeid->format typeid->type-reader typeid->type-writer)
-                      (typeid type since-version fmt reader writer) ...)
+                                (typeid type since-version fmt reader writer) ...)
   (begin (define-type-table (type-list typeid->type describe-typeid)
            (typeid type since-version) ...)
          (define (typeid->type-reader fsym tid)
            (let ([result
                   (case tid
                     ((typeid) reader) ...
-                    (else #f))])
+                    (else (custom-type-reader tid)))])
              (or result (error/unsupported-type fsym tid (typeid->type tid)))))
          (define (typeid->type-writer tid)
            (let ([result
                   (case tid
                     ((typeid) writer) ...
-                    (else #f))])
+                    (else (custom-type-writer tid)))])
              (or result (make-unsupported-writer tid (typeid->type tid)))))
          (define (typeid->format tid)
            (case tid
              ((typeid) fmt) ...
-             (else 0)))))
+             (else (or (custom-type-fmt tid) 0))))))
 
 (define (make-unsupported-writer x t)
   (lambda (fsym . args)
