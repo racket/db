@@ -10,3 +10,6 @@
 (define pkg-desc "Database connectivity")
 
 (define pkg-authors '(ryanc))
+
+(define license
+  '(Apache-2.0 OR MIT))
