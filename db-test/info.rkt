@@ -12,3 +12,6 @@
 (define pkg-authors '(ryanc))
 (define build-deps '("srfi-lite-lib"))
 (define update-implies '("db-lib"))
+
+(define license
+  '(Apache-2.0 OR MIT))
