@@ -103,5 +103,5 @@
 
 (define (uuid? x)
   (define uuid-rx
-    #px"[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}")
+    #px"^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$")
   (and (string? x) (regexp-match? uuid-rx x)))
