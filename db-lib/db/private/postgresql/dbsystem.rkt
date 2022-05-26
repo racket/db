@@ -149,6 +149,7 @@
   (21   smallint     0   1  recv-integer      send-int2)
   (23   integer      0   1  recv-integer      send-int4)
   (25   text         0   1  recv-string       send-string)
+  (36556 citext      0   1  recv-string       send-string)
   (26   oid          0   1  recv-integer      send-int4)
   (700  real         0   1  recv-float        send-float4)
   (701  double       0   1  recv-float        send-float8)
