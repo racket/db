@@ -1,5 +1,6 @@
 #lang racket/base
-(require racket/class
+(require (for-syntax racket/base)
+         racket/class
          racket/list
          racket/match
          racket/string
@@ -20,11 +21,16 @@
 
 (define postgresql-dbsystem%
   (class* dbsystem-base% (dbsystem<%>)
-    (init-field integer-datetimes?)
+    (init-field integer-datetimes?
+                typeid=>typeinfo)
     (super-new)
 
     (define/public (get-short-name) 'postgresql)
-    (define/override (get-type-list) type-list)
+
+    ;; get-type-list : (Listof (list Symbol Num/#f))
+    (define/override (get-type-list)
+      (for/list ([(typeid ti) (in-hash typeid=>typeinfo)])
+        (list (typeinfo-type ti) (typeinfo-since ti))))
 
     (define/public (get-integer-datetimes?) integer-datetimes?)
 
@@ -38,38 +44,63 @@
         (else #f)))
 
     (define/public (get-parameter-handlers param-typeids)
-      (let ([writers (map typeid->type-writer param-typeids)])
-        (if integer-datetimes?
-            writers
-            (map (lambda (w)
-                   (lambda (f x)
-                     (parameterize ((use-integer-datetimes? #f))
-                       (w f x))))
-                 writers))))
+      (define writers (for/list ([typeid (in-list param-typeids)])
+                        (or (typeid->type-writer typeid)
+                            (make-unsupported-writer typeid (typeid->type typeid)))))
+      (define ((convert/floating-point-datetimes w) f x)
+        (parameterize ((use-integer-datetimes? #f))
+          (w f x)))
+      (cond [integer-datetimes? writers]
+            [else (map convert/floating-point-datetimes writers)]))
 
     (define/public (field-dvecs->typeids dvecs)
       (map field-dvec->typeid dvecs))
 
+    ;; field-dvecs->type-readers : Symbol (Listof DVec) -> (Listof TypeReader)
     (define/public (field-dvecs->type-readers who dvecs)
       (for/list ([dvec (in-list dvecs)])
-        (typeid->type-reader who (field-dvec->typeid dvec))))
+        (define typeid (field-dvec->typeid dvec))
+        (or (typeid->type-reader typeid)
+            (error/unsupported-type who typeid (typeid->type typeid)))))
+
+    ;; typeid->type-reader : Nat -> TypeReader or #f
+    (define/public-final (typeid->type-reader typeid)
+      (cond [(typeid->typeinfo typeid) => typeinfo-reader]
+            [else #f]))
+    ;; typeid->type-writer : Nat -> TypeWriter or #f
+    (define/public-final (typeid->type-writer typeid)
+      (cond [(typeid->typeinfo typeid) => typeinfo-writer]
+            [else #f]))
+    ;; typeid->type : Nat -> Symbol or #f
+    (define/public-final (typeid->type typeid)
+      (cond [(typeid->typeinfo typeid) => typeinfo-type]
+            [else #f]))
+
+    ;; typeid->typeinfo : Nat -> TypeInfo or #f
+    (define/private (typeid->typeinfo typeid)
+      (cond [(hash-ref typeid=>typeinfo typeid #f) => values]
+            [(eqv? typeid typeid:record) (record-typeinfo this)]
+            [(eqv? typeid typeid:record-array) (record-array-typeinfo this)]
+            [else #f]))
 
     (define/public (typeids->formats typeids)
-      (map typeid->format typeids))
-
-    (define/public (typeids->type-readers typeids)
-      (map typeid->type-reader typeids))
+      (for/list ([typeid (in-list typeids)]) 1))
 
     (define/public (describe-params typeids)
-      (map describe-typeid typeids))
+      (for/list ([typeid (in-list typeids)])
+        (describe-typeid typeid)))
 
     (define/public (describe-fields field-dvecs)
       (for/list ([dvec (in-list field-dvecs)])
         (describe-typeid (field-dvec->typeid dvec))))
-    ))
 
-(define dbsystem/integer-datetimes
-  (new postgresql-dbsystem% (integer-datetimes? #t)))
+    ;; describe-typeid : Typeid -> (list Boolean Type Typeid), `(#f #f ,tid) if unknown
+    (define/private (describe-typeid typeid)
+      (define ti (typeid->typeinfo typeid))
+      (cond [ti (list (and (typeinfo-since ti) #t) (typeinfo-type ti) typeid)]
+            [else (list #f #f typeid)]))
+
+    ))
 
 ;; ========================================
 
@@ -113,169 +144,6 @@
      ("SAVEPOINT"                    savepoint)
      ("START TRANSACTION"            start)
      )))
-
-;; ============================================================
-
-(define-syntax-rule (type-table (type-list typeid->type describe-typeid)
-                                (typeid->format typeid->type-reader typeid->type-writer)
-                      (typeid type since-version fmt reader writer) ...)
-  (begin (define-type-table (type-list typeid->type describe-typeid)
-           (typeid type since-version) ...)
-         (define (typeid->type-reader fsym tid)
-           (let ([result
-                  (case tid
-                    ((typeid) reader) ...
-                    (else #f))])
-             (or result (error/unsupported-type fsym tid (typeid->type tid)))))
-         (define (typeid->type-writer tid)
-           (let ([result
-                  (case tid
-                    ((typeid) writer) ...
-                    (else #f))])
-             (or result (make-unsupported-writer tid (typeid->type tid)))))
-         (define (typeid->format tid)
-           (case tid
-             ((typeid) fmt) ...
-             (else 0)))))
-
-(define (make-unsupported-writer x t)
-  (lambda (fsym . args)
-    (error/unsupported-type fsym x t)))
-
-;; ============================================================
-
-;; Derived from 
-;; http://www.postgresql.org/docs/current/static/datatype.html
-;; and
-;; result of "SELECT oid, typname, typelem FROM pg_type;"
-
-(type-table (type-list typeid->type describe-typeid)
-            (typeid->format typeid->type-reader typeid->type-writer)
-  (16   boolean      0   1  recv-boolean      send-boolean)
-  (17   bytea        0   1  recv-bytea        send-bytea)
-  (18   char1        0   1  recv-char1        send-char1)
-  (19   name         0   1  recv-string       send-string)
-  (20   bigint       0   1  recv-integer      send-int8)
-  (21   smallint     0   1  recv-integer      send-int2)
-  (23   integer      0   1  recv-integer      send-int4)
-  (25   text         0   1  recv-string       send-string)
-  (26   oid          0   1  recv-integer      send-int4)
-  (700  real         0   1  recv-float        send-float4)
-  (701  double       0   1  recv-float        send-float8)
-  (1042 character    0   1  recv-string       send-string)
-  (1043 varchar      0   1  recv-string       send-string)
-  (1082 date         0   1  recv-date         send-date)
-  (1083 time         0   1  recv-time         send-time)
-  (1114 timestamp    0   1  recv-timestamp    send-timestamp)
-  (1184 timestamptz  0   1  recv-timestamptz  send-timestamptz)
-  (1186 interval     0   1  recv-interval     send-interval)
-  (1266 timetz       0   1  recv-timetz       send-timetz)
-  (1700 decimal      0   1  recv-numeric      send-numeric)
-  (1560 bit          0   1  recv-bits         send-bits)
-  (1562 varbit       0   1  recv-bits         send-bits)
-  (114  json         9.2 1  recv-json         send-json)
-  (3802 jsonb        9.4 1  recv-jsonb        send-jsonb)
-
-  (600  point        0   1  recv-point        send-point)
-  (601  lseg         0   1  recv-lseg         send-lseg)
-  (602  path         0   1  recv-path         send-path)
-  (603  box          0   1  recv-box          send-box)
-  (604  polygon      0   1  recv-polygon      send-polygon)
-  (718  circle       0   1  recv-circle       send-circle)
-
-  (2950 uuid              0 1 recv-uuid send-uuid)
-  
-  (3904 int4range    9.2 1  (recv-range 23)   (send-range 23))
-  (3926 int8range    9.2 1  (recv-range 20)   (send-range 20))
-  (3906 numrange     9.2 1  (recv-range 1700) (send-range 1700))
-  (3908 tsrange      9.2 1  (recv-range 1114) (send-range 1114))
-  (3910 tstzrange    9.2 1  (recv-range 1184) (send-range 1184))
-  (3912 daterange    9.2 1  (recv-range 1082) (send-range 1082))
-
-  ;; "string" literals have type unknown; just treat as string
-  (705 unknown       0   1  recv-string       send-string)
-
-  ;; Array types
-
-  (1000 boolean-array     0   1  recv-array (send-array 16))
-  (1001 bytea-array       0   1  recv-array (send-array 17))
-  (1002 char1-array       0   1  recv-array (send-array 18))
-  (1003 name-array        0   1  recv-array (send-array 19))
-  (1005 smallint-array    0   1  recv-array (send-array 21))
-  (1007 integer-array     0   1  recv-array (send-array 23))
-  (1009 text-array        0   1  recv-array (send-array 25))
-  (1028 oid-array         0   1  recv-array (send-array 26))
-  (1014 character-array   0   1  recv-array (send-array 1042))
-  (1015 varchar-array     0   1  recv-array (send-array 1043))
-  (1016 bigint-array      0   1  recv-array (send-array 20))
-  (1017 point-array       0   1  recv-array (send-array 600))
-  (1018 lseg-array        0   1  recv-array (send-array 601))
-  (1019 path-array        0   1  recv-array (send-array 602))
-  (1020 box-array         0   1  recv-array (send-array 603))
-  (1021 real-array        0   1  recv-array (send-array 700))
-  (1022 double-array      0   1  recv-array (send-array 701))
-  (1027 polygon-array     0   1  recv-array (send-array 604))
-  (719  circle-array      0   1  recv-array (send-array 718))
-  (1561 bit-array         0   1  recv-array (send-array 1560))
-  (1563 varbit-array      0   1  recv-array (send-array 1562))
-  (199  json-array        9.2 1  recv-array (send-array 114))
-  (3807 jsonb-array       9.4 1  recv-array (send-array 3802))
-
-  (1115 timestamp-array   0   1  recv-array (send-array 1114))
-  (1182 date-array        0   1  recv-array (send-array 1082))
-  (1183 time-array        0   1  recv-array (send-array 1083))
-  (1185 timestamptz-array 0   1  recv-array (send-array 1184))
-  (1187 interval-array    0   1  recv-array (send-array 1186))
-  (1231 decimal-array     0   1  recv-array (send-array 1700))
-  (1270 timetz-array      0   1  recv-array (send-array 1266))
-
-  (2951 uuid-array       0 1 recv-array (send-array 2950))
-  
-  (3905 int4range-array   9.2 1  recv-array (send-array 3904))
-  (3927 int8range-array   9.2 1  recv-array (send-array 3926))
-  (3907 numrange-array    9.2 1  recv-array (send-array 3906))
-  (3909 tsrange-array     9.2 1  recv-array (send-array 3908))
-  (3911 tstzrange-array   9.2 1  recv-array (send-array 3910))
-  (3913 daterange-array   9.2 1  recv-array (send-array 3912))
-
-  (2275 cstring           0   1 recv-string send-string)
-  ;; Receive but do not send
-  (2249 record            #f  1 recv-record #f)
-  (2278 void              #f  1 recv-void   #f)
-  (2287 record-array      #f  1 recv-array  #f)
-
-  ;; The following types are not supported.
-  ;; (But putting their names here yields better not-supported errors.)
-
-  (142  xml               #f 0 #f #f)
-  (143  xml-array         #f 0 #f #f)
-
-  (628  line              #f 0 #f #f)
-  (629  line-array        #f 0 #f #f)
-  (650  cidr              #f 0 #f #f)
-  (651  cidr-array        #f 0 #f #f)
-  (702  abstime           #f 0 #f #f)
-  (703  reltime           #f 0 #f #f)
-  (704  tinterval         #f 0 #f #f)
-  (790  money             #f 0 #f #f)
-  (829  macaddr           #f 0 #f #f)
-  (869  inet              #f 0 #f #f)
-  (791  money-array       #f 0 #f #f)
-  (1023 abstime-array     #f 0 #f #f)
-  (1024 reltime-array     #f 0 #f #f)
-  (1025 tinterval-array   #f 0 #f #f)
-  (1040 macaddr-array     #f 0 #f #f)
-  (1041 inet-array        #f 0 #f #f)
-  (2279 trigger           #f 0 #f #f)
-  (2281 internal          #f 0 #f #f)
-  (2282 opaque            #f 0 #f #f)
-  (3614 tsvector          #f 0 #f #f)
-  (3515 tsquery           #f 0 #f #f)
-  (3642 gtsvector         #f 0 #f #f)
-  (3643 tsvector-array    #f 0 #f #f)
-  (3644 gtsvector-array   #f 0 #f #f)
-  (3645 tsquery-array     #f 0 #f #f))
-
 
 ;; ----------------------------------------
 
@@ -455,7 +323,7 @@ jsonb = version:byte byte*
                 [(yr mon) (quotient/remainder mon 12)])
     (make-sql-interval yr mon day hr min sec nsec)))
 
-(define (recv-record buf start end)
+(define ((recv-record dbsys) buf start end)
   (define (get-int signed?)
     (begin0 (integer-bytes->integer buf signed? #t start (+ start 4))
       (set! start (+ start 4))))
@@ -464,8 +332,7 @@ jsonb = version:byte byte*
            [len (get-int #t)])
       (if (= len -1)
           sql-null
-          (let* ([bin? (= (typeid->format typeid) 1)] ;; binary reader available
-                 [reader (and bin? (typeid->type-reader 'recv-record typeid))])
+          (let ([reader (send dbsys typeid->type-reader typeid)])
             (if reader
                 (reader buf start (+ start (max 0 len)))
                 'unreadable)))))
@@ -478,14 +345,17 @@ jsonb = version:byte byte*
 (define (recv-void buf start end)
   (void))
 
-(define (recv-array buf start end)
+(define ((recv-array eltid reader) buf start end)
   (define (get-int signed?)
     (begin0 (integer-bytes->integer buf signed? #t start (+ start 4))
       (set! start (+ start 4))))
   (let* ([ndim (get-int #t)]
          [flags (get-int #f)]
          [elttype (get-int #f)]
-         [reader (typeid->type-reader 'recv-array elttype)]
+         [reader
+          (if (= eltid elttype)
+              reader
+              (error 'recv-array "wrong element typeid: expected ~s, got ~s" eltid elttype))]
          [bounds
           (for/list ([i (in-range ndim)])
             (let* ([dim (get-int #t)]
@@ -542,13 +412,12 @@ jsonb = version:byte byte*
     (else (error/internal 'recv-jsonb "unknown binary encoding version ~e"
                           (bytes-ref buf start)))))
 
-(define (recv-range elttype)
+(define (recv-range elttype reader)
   (define EMPTY  #x01)
   (define LB_INC #x02)
   (define UB_INC #x04)
   (define LB_INF #x08)
   (define UB_INF #x10)
-  (define reader (typeid->type-reader 'recv-range elttype))
   (lambda (buf start end)
     (let* ([flags (bytes-ref buf start)]
            [is-empty? (not (zero? (bitwise-and flags EMPTY)))]
@@ -785,37 +654,34 @@ jsonb = version:byte byte*
         [else
          (send-error f "numeric" x #:contract '(or/c rational? +nan.0))]))
 
-(define (send-array elttype)
-  ;; NOTE: elttype must have binary writer
-  (define writer (typeid->type-writer elttype))
-  (lambda (f x0)
-    (define x
-      (cond [(pg-array? x0) x0]
-            [(list? x0) (list->pg-array x0)]
-            [else (send-error f "pg-array" x0 #:contract '(or/c list? pg-array?))]))
-    (match x
-      [(pg-array ndim counts lbounds vals)
-       (let ([out (open-output-bytes)])
-         (write-bytes (integer->integer-bytes ndim 4 #t #t) out)
-         (write-bytes (integer->integer-bytes 0 4 #t #t) out)
-         (write-bytes (integer->integer-bytes elttype 4 #t #t) out)
-         (for ([count (in-list counts)]
-               [lbound (in-list lbounds)])
-           (write-bytes (integer->integer-bytes count 4 #t #t) out)
-           (write-bytes (integer->integer-bytes lbound 4 #t #t) out))
-         (unless (zero? ndim)
-           (let loop ([n ndim] [vals vals])
-             (cond [(zero? n)
-                    (cond [(sql-null? vals)
-                           (write-bytes (integer->integer-bytes -1 4 #t #t) out)]
-                          [else
-                           (let ([b (writer f vals)])
-                             (write-bytes (integer->integer-bytes (bytes-length b) 4 #t #t) out)
-                             (write-bytes b out))])]
-                   [else
-                    (for ([v (in-vector vals)])
-                      (loop (sub1 n) v))])))
-         (get-output-bytes out))])))
+(define ((send-array elttype writer) f x0)
+  (define x
+    (cond [(pg-array? x0) x0]
+          [(list? x0) (list->pg-array x0)]
+          [else (send-error f "pg-array" x0 #:contract '(or/c list? pg-array?))]))
+  (match x
+    [(pg-array ndim counts lbounds vals)
+     (let ([out (open-output-bytes)])
+       (write-bytes (integer->integer-bytes ndim 4 #t #t) out)
+       (write-bytes (integer->integer-bytes 0 4 #t #t) out)
+       (write-bytes (integer->integer-bytes elttype 4 #t #t) out)
+       (for ([count (in-list counts)]
+             [lbound (in-list lbounds)])
+         (write-bytes (integer->integer-bytes count 4 #t #t) out)
+         (write-bytes (integer->integer-bytes lbound 4 #t #t) out))
+       (unless (zero? ndim)
+         (let loop ([n ndim] [vals vals])
+           (cond [(zero? n)
+                  (cond [(sql-null? vals)
+                         (write-bytes (integer->integer-bytes -1 4 #t #t) out)]
+                        [else
+                         (let ([b (writer f vals)])
+                           (write-bytes (integer->integer-bytes (bytes-length b) 4 #t #t) out)
+                           (write-bytes b out))])]
+                 [else
+                  (for ([v (in-vector vals)])
+                    (loop (sub1 n) v))])))
+       (get-output-bytes out))]))
 
 (define (send-json f x)
   (unless (jsexpr? x)
@@ -828,34 +694,193 @@ jsonb = version:byte byte*
   (bytes-append (bytes 1)
                 (jsexpr->bytes x)))
 
-(define (send-range elttype)
+(define ((send-range elttype writer) f x)
   (define EMPTY  #x01)
   (define LB_INC #x02)
   (define UB_INC #x04)
   (define LB_INF #x08)
   (define UB_INF #x10)
-  (define writer (typeid->type-writer elttype))
-  (lambda (f x)
-    (match x
-      [(pg-range lb includes-lb? ub includes-ub?)
-       (let* ([flags (+ (if lb 0 LB_INF)
-                        (if ub 0 UB_INF)
-                        (if includes-lb? LB_INC 0)
-                        (if includes-ub? UB_INC 0))]
-              [lb-bytes (and lb (writer f lb))]
-              [ub-bytes (and ub (writer f ub))])
-         (bytes-append (bytes flags)
-                       (if lb-bytes
-                           (integer->integer-bytes (bytes-length lb-bytes) 4 #t #t)
-                           #"")
-                       (or lb-bytes #"")
-                       (if ub-bytes
-                           (integer->integer-bytes (bytes-length ub-bytes) 4 #t #t)
-                           #"")
-                       (or ub-bytes #"")))]
-      [(pg-empty-range)
-       (bytes 1)])))
+  (match x
+    [(pg-range lb includes-lb? ub includes-ub?)
+     (let* ([flags (+ (if lb 0 LB_INF)
+                      (if ub 0 UB_INF)
+                      (if includes-lb? LB_INC 0)
+                      (if includes-ub? UB_INC 0))]
+            [lb-bytes (and lb (writer f lb))]
+            [ub-bytes (and ub (writer f ub))])
+       (bytes-append (bytes flags)
+                     (if lb-bytes
+                         (integer->integer-bytes (bytes-length lb-bytes) 4 #t #t)
+                         #"")
+                     (or lb-bytes #"")
+                     (if ub-bytes
+                         (integer->integer-bytes (bytes-length ub-bytes) 4 #t #t)
+                         #"")
+                     (or ub-bytes #"")))]
+    [(pg-empty-range)
+     (bytes 1)]))
 
 ;; send-error : string datum -> (raises error)
 (define (send-error f type datum #:contract [ctc #f])
   (error/no-convert f "PostgreSQL" type datum #:contract ctc))
+
+;; ============================================================
+
+(struct typeinfo (type since reader writer) #:prefab)
+
+(define-syntax-rule (type-table (typeid type since reader writer) ...)
+  (hasheqv (~@ 'typeid (typeinfo 'type since reader writer)) ...))
+
+(define (make-unsupported-writer x t)
+  (lambda (fsym . args)
+    (error/unsupported-type fsym x (or t "(unknown type)"))))
+
+;; ----------------------------------------
+
+;; typeid=>typeinfo : Hasheqv[Nat => TypeInfo]
+
+;; Derived from 
+;; http://www.postgresql.org/docs/current/static/datatype.html
+;; and
+;; result of "SELECT oid, typname, typelem FROM pg_type;"
+
+(define typeid=>typeinfo
+  (type-table
+   (16   boolean      0   recv-boolean      send-boolean)
+   (17   bytea        0   recv-bytea        send-bytea)
+   (18   char1        0   recv-char1        send-char1)
+   (19   name         0   recv-string       send-string)
+   (20   bigint       0   recv-integer      send-int8)
+   (21   smallint     0   recv-integer      send-int2)
+   (23   integer      0   recv-integer      send-int4)
+   (25   text         0   recv-string       send-string)
+   (26   oid          0   recv-integer      send-int4)
+   (700  real         0   recv-float        send-float4)
+   (701  double       0   recv-float        send-float8)
+   (1042 character    0   recv-string       send-string)
+   (1043 varchar      0   recv-string       send-string)
+   (1082 date         0   recv-date         send-date)
+   (1083 time         0   recv-time         send-time)
+   (1114 timestamp    0   recv-timestamp    send-timestamp)
+   (1184 timestamptz  0   recv-timestamptz  send-timestamptz)
+   (1186 interval     0   recv-interval     send-interval)
+   (1266 timetz       0   recv-timetz       send-timetz)
+   (1700 decimal      0   recv-numeric      send-numeric)
+   (1560 bit          0   recv-bits         send-bits)
+   (1562 varbit       0   recv-bits         send-bits)
+   (114  json         9.2 recv-json         send-json)
+   (3802 jsonb        9.4 recv-jsonb        send-jsonb)
+
+   (600  point        0   recv-point        send-point)
+   (601  lseg         0   recv-lseg         send-lseg)
+   (602  path         0   recv-path         send-path)
+   (603  box          0   recv-box          send-box)
+   (604  polygon      0   recv-polygon      send-polygon)
+   (718  circle       0   recv-circle       send-circle)
+
+   (2950 uuid         0   recv-uuid         send-uuid)
+
+   (3904 int4range    9.2 (recv-range 23 recv-integer) (send-range 23 send-int4))
+   (3926 int8range    9.2 (recv-range 20 recv-integer) (send-range 20 send-int8))
+   (3906 numrange     9.2 (recv-range 1700 recv-numeric) (send-range 1700 send-numeric))
+   (3908 tsrange      9.2 (recv-range 1114 recv-timestamp) (send-range 1114 send-timestamp))
+   (3910 tstzrange    9.2 (recv-range 1184 recv-timestamptz) (send-range 1184 send-timestamptz))
+   (3912 daterange    9.2 (recv-range 1082 recv-date) (send-range 1082 send-date))
+
+   ;; "string" literals have type unknown; just treat as string
+   (705 unknown       0   recv-string       send-string)
+
+   ;; Array types
+
+   (1000 boolean-array     0   (recv-array 16 recv-boolean) (send-array 16 send-boolean))
+   (1001 bytea-array       0   (recv-array 17 recv-bytea) (send-array 17 send-bytea))
+   (1002 char1-array       0   (recv-array 18 recv-char1) (send-array 18 send-char1))
+   (1003 name-array        0   (recv-array 19 recv-string) (send-array 19 send-string))
+   (1005 smallint-array    0   (recv-array 21 recv-integer) (send-array 21 send-int2))
+   (1007 integer-array     0   (recv-array 23 recv-integer) (send-array 23 send-int4))
+   (1009 text-array        0   (recv-array 25 recv-string) (send-array 25 send-string))
+   (1028 oid-array         0   (recv-array 26 recv-integer) (send-array 26 send-int4))
+   (1014 character-array   0   (recv-array 1042 recv-string) (send-array 1042 send-string))
+   (1015 varchar-array     0   (recv-array 1043 recv-string) (send-array 1043 send-string))
+   (1016 bigint-array      0   (recv-array 20 recv-integer) (send-array 20 send-int8))
+   (1017 point-array       0   (recv-array 600 recv-point) (send-array 600 send-point))
+   (1018 lseg-array        0   (recv-array 601 recv-lseg) (send-array 601 send-lseg))
+   (1019 path-array        0   (recv-array 602 recv-path) (send-array 602 send-path))
+   (1020 box-array         0   (recv-array 603 recv-box) (send-array 603 send-box))
+   (1021 real-array        0   (recv-array 700 recv-float) (send-array 700 send-float4))
+   (1022 double-array      0   (recv-array 701 recv-float) (send-array 701 send-float8))
+   (1027 polygon-array     0   (recv-array 604 recv-polygon) (send-array 604 send-polygon))
+   (719  circle-array      0   (recv-array 718 recv-circle) (send-array 718 send-circle))
+   (1561 bit-array         0   (recv-array 1560 recv-bits) (send-array 1560 send-bits))
+   (1563 varbit-array      0   (recv-array 1562 recv-bits) (send-array 1562 send-bits))
+   (199  json-array        9.2 (recv-array 114 recv-json) (send-array 114 send-json))
+   (3807 jsonb-array       9.4 (recv-array 3802 recv-jsonb) (send-array 3802 send-jsonb))
+
+   (1115 timestamp-array   0   (recv-array 1114 recv-timestamp) (send-array 1114 send-timestamp))
+   (1182 date-array        0   (recv-array 1082 recv-date) (send-array 1082 send-date))
+   (1183 time-array        0   (recv-array 1083 recv-time) (send-array 1083 send-time))
+   (1185 timestamptz-array 0   (recv-array 1184 recv-timestamptz) (send-array 1184 send-timestamptz))
+   (1187 interval-array    0   (recv-array 1186 recv-interval) (send-array 1186 send-interval))
+   (1231 decimal-array     0   (recv-array 1700 recv-numeric) (send-array 1700 send-numeric))
+   (1270 timetz-array      0   (recv-array 1266 recv-timetz) (send-array 1266 send-timetz))
+
+   (2951 uuid-array        0   (recv-array 2950 recv-uuid) (send-array 2950 send-uuid))
+
+   (3905 int4range-array   9.2 (recv-array 3904 (recv-range 23 recv-integer)) (send-array 3904 (send-range 23 send-int4)))
+   (3927 int8range-array   9.2 (recv-array 3926 (recv-range 20 recv-integer)) (send-array 3926 (send-range 20 send-int8)))
+   (3907 numrange-array    9.2 (recv-array 3906 (recv-range 1700 recv-numeric)) (send-array 3906 (send-range 1700 send-numeric)))
+   (3909 tsrange-array     9.2 (recv-array 3908 (recv-range 1114 recv-timestamp)) (send-array 3908 (send-range 1114 send-timestamp)))
+   (3911 tstzrange-array   9.2 (recv-array 3910 (recv-range 1184 recv-timestamptz)) (send-array 3910 (send-range 1184 send-timestamptz)))
+   (3913 daterange-array   9.2 (recv-array 3912 (recv-range 1082 recv-date)) (send-array 3912 (send-range 1082 send-date)))
+
+   (2275 cstring           0   recv-string send-string)
+
+   ;; Receive but do not send
+   (2278 void              #f  recv-void   #f)
+
+   ;; Handled specially by typeid->typeinfo method
+   ;; (2249 record            #f  recv-record #f)
+   ;; (2287 record-array      #f  recv-array  #f)
+
+   ;; The following types are not supported.
+   ;; (But putting their names here yields better not-supported errors.)
+
+   (142  xml               #f #f #f)
+   (143  xml-array         #f #f #f)
+
+   (628  line              #f #f #f)
+   (629  line-array        #f #f #f)
+   (650  cidr              #f #f #f)
+   (651  cidr-array        #f #f #f)
+   (702  abstime           #f #f #f)
+   (703  reltime           #f #f #f)
+   (704  tinterval         #f #f #f)
+   (790  money             #f #f #f)
+   (829  macaddr           #f #f #f)
+   (869  inet              #f #f #f)
+   (791  money-array       #f #f #f)
+   (1023 abstime-array     #f #f #f)
+   (1024 reltime-array     #f #f #f)
+   (1025 tinterval-array   #f #f #f)
+   (1040 macaddr-array     #f #f #f)
+   (1041 inet-array        #f #f #f)
+   (2279 trigger           #f #f #f)
+   (2281 internal          #f #f #f)
+   (2282 opaque            #f #f #f)
+   (3614 tsvector          #f #f #f)
+   (3515 tsquery           #f #f #f)
+   (3642 gtsvector         #f #f #f)
+   (3643 tsvector-array    #f #f #f)
+   (3644 gtsvector-array   #f #f #f)
+   (3645 tsquery-array     #f #f #f)))
+
+(define typeid:record 2249)
+(define typeid:record-array 2287)
+
+(define (record-typeinfo dbsys)
+  (typeinfo 'record #f (recv-record dbsys) #f))
+(define (record-array-typeinfo dbsys)
+  (typeinfo 'record-array #f (recv-array 2249 (recv-record dbsys)) #f))
+
+(define dbsystem/integer-datetimes
+  (new postgresql-dbsystem% (integer-datetimes? #t) (typeid=>typeinfo typeid=>typeinfo)))
