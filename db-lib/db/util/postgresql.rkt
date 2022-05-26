@@ -2,9 +2,24 @@
 (require racket/contract/base
          db/private/generic/interfaces
          "private/geometry.rkt"
-         db/private/postgresql/util)
+         (rename-in db/private/postgresql/util
+                    [pg-custom-type make-custom-type]))
+
+(define (pg-custom-type typeid name [base-type #f]
+                        #:recv [recv-convert values]
+                        #:send [send-convert values])
+  (make-custom-type typeid name base-type recv-convert send-convert))
 
 (provide/contract
+ [pg-custom-type?
+  (-> any/c boolean?)]
+ [pg-custom-type
+  (->* [exact-nonnegative-integer?
+        symbol?]
+       [(or/c #f symbol? exact-nonnegative-integer?)
+        #:recv (or/c #f (procedure-arity-includes/c 1))
+        #:send (or/c #f (procedure-arity-includes/c 1))]
+       any)]
  [struct pg-box ([ne point?] [sw point?])]
  [struct pg-circle ([center point?] [radius (and/c real? (not/c negative?))])]
  [struct pg-path ([closed? any/c] [points (listof point?)])]

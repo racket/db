@@ -13,7 +13,7 @@
          db/private/generic/sql-convert
          "../../util/datetime.rkt"
          "../../util/geometry.rkt"
-         "../../util/postgresql.rkt"
+         "util.rkt"
          (only-in "message.rkt" field-dvec->typeid))
 (provide dbsystem/integer-datetimes
          use-integer-datetimes?
@@ -34,8 +34,35 @@
 
     (define/public (get-integer-datetimes?) integer-datetimes?)
 
-    (define/public (copy #:integer-datetimes? [idt? integer-datetimes?])
-      (new this% (integer-datetimes? idt?)))
+    (define/public (copy who
+                         #:integer-datetimes? [idt? integer-datetimes?]
+                         #:add-types custom-types)
+      (define typeid=>typeinfo*
+        (for/fold ([h typeid=>typeinfo])
+                  ([ct (in-list custom-types)])
+          (match ct
+            [(pg-custom-type typeid typename basetype recv-convert send-convert)
+             (match (type*->typeinfo basetype)
+               [(typeinfo _ _ base-reader base-writer)
+                (define (custom-type-reader buf start end)
+                  (recv-convert (base-reader buf start end)))
+                (define (custom-type-writer who x)
+                  (base-writer who (send-convert x)))
+                (define info
+                  (typeinfo typename
+                            0 ;; meaningless for custom types
+                            (and base-reader recv-convert custom-type-reader)
+                            (and base-writer send-convert custom-type-writer)))
+                (hash-set h typeid info)]
+               [_ (error who "~a\n  custom type: ~e\n  base type: ~e"
+                         "base type not found for custom type" typename basetype)])])))
+      (new this% (integer-datetimes? idt?) (typeid=>typeinfo typeid=>typeinfo*)))
+
+    (define/private (type*->typeinfo type)
+      (cond [(eq? type #f) bytea-typeinfo]
+            [(exact-integer? type) (typeid->typeinfo type)]
+            [else (for/or ([ti (in-hash-values typeid=>typeinfo)])
+                    (and (equal? type (typeinfo-type ti)) ti))]))
 
     (define/public (has-support? option)
       (case option
@@ -882,9 +909,12 @@ jsonb = version:byte byte*
     (define writer (send-array elem-typeid elem-writer))
     (hash-set h typeid (typeinfo typename since reader writer))))
 
+(define typeid:bytea 17)
 (define typeid:record 2249)
 (define typeid:record-array 2287)
 
+(define bytea-typeinfo
+  (hash-ref typeid=>typeinfo typeid:bytea))
 (define (record-typeinfo dbsys)
   (typeinfo 'record #f (recv-record dbsys) #f))
 (define (record-array-typeinfo dbsys)
