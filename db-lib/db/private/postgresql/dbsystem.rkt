@@ -744,7 +744,7 @@ jsonb = version:byte byte*
 ;; and
 ;; result of "SELECT oid, typname, typelem FROM pg_type;"
 
-(define typeid=>typeinfo
+(define (base-table)
   (type-table
    (16   boolean      0   recv-boolean      send-boolean)
    (17   bytea        0   recv-bytea        send-bytea)
@@ -788,55 +788,11 @@ jsonb = version:byte byte*
    (3912 daterange    9.2 (recv-range 1082 recv-date) (send-range 1082 send-date))
 
    ;; "string" literals have type unknown; just treat as string
-   (705 unknown       0   recv-string       send-string)
-
-   ;; Array types
-
-   (1000 boolean-array     0   (recv-array 16 recv-boolean) (send-array 16 send-boolean))
-   (1001 bytea-array       0   (recv-array 17 recv-bytea) (send-array 17 send-bytea))
-   (1002 char1-array       0   (recv-array 18 recv-char1) (send-array 18 send-char1))
-   (1003 name-array        0   (recv-array 19 recv-string) (send-array 19 send-string))
-   (1005 smallint-array    0   (recv-array 21 recv-integer) (send-array 21 send-int2))
-   (1007 integer-array     0   (recv-array 23 recv-integer) (send-array 23 send-int4))
-   (1009 text-array        0   (recv-array 25 recv-string) (send-array 25 send-string))
-   (1028 oid-array         0   (recv-array 26 recv-integer) (send-array 26 send-int4))
-   (1014 character-array   0   (recv-array 1042 recv-string) (send-array 1042 send-string))
-   (1015 varchar-array     0   (recv-array 1043 recv-string) (send-array 1043 send-string))
-   (1016 bigint-array      0   (recv-array 20 recv-integer) (send-array 20 send-int8))
-   (1017 point-array       0   (recv-array 600 recv-point) (send-array 600 send-point))
-   (1018 lseg-array        0   (recv-array 601 recv-lseg) (send-array 601 send-lseg))
-   (1019 path-array        0   (recv-array 602 recv-path) (send-array 602 send-path))
-   (1020 box-array         0   (recv-array 603 recv-box) (send-array 603 send-box))
-   (1021 real-array        0   (recv-array 700 recv-float) (send-array 700 send-float4))
-   (1022 double-array      0   (recv-array 701 recv-float) (send-array 701 send-float8))
-   (1027 polygon-array     0   (recv-array 604 recv-polygon) (send-array 604 send-polygon))
-   (719  circle-array      0   (recv-array 718 recv-circle) (send-array 718 send-circle))
-   (1561 bit-array         0   (recv-array 1560 recv-bits) (send-array 1560 send-bits))
-   (1563 varbit-array      0   (recv-array 1562 recv-bits) (send-array 1562 send-bits))
-   (199  json-array        9.2 (recv-array 114 recv-json) (send-array 114 send-json))
-   (3807 jsonb-array       9.4 (recv-array 3802 recv-jsonb) (send-array 3802 send-jsonb))
-
-   (1115 timestamp-array   0   (recv-array 1114 recv-timestamp) (send-array 1114 send-timestamp))
-   (1182 date-array        0   (recv-array 1082 recv-date) (send-array 1082 send-date))
-   (1183 time-array        0   (recv-array 1083 recv-time) (send-array 1083 send-time))
-   (1185 timestamptz-array 0   (recv-array 1184 recv-timestamptz) (send-array 1184 send-timestamptz))
-   (1187 interval-array    0   (recv-array 1186 recv-interval) (send-array 1186 send-interval))
-   (1231 decimal-array     0   (recv-array 1700 recv-numeric) (send-array 1700 send-numeric))
-   (1270 timetz-array      0   (recv-array 1266 recv-timetz) (send-array 1266 send-timetz))
-
-   (2951 uuid-array        0   (recv-array 2950 recv-uuid) (send-array 2950 send-uuid))
-
-   (3905 int4range-array   9.2 (recv-array 3904 (recv-range 23 recv-integer)) (send-array 3904 (send-range 23 send-int4)))
-   (3927 int8range-array   9.2 (recv-array 3926 (recv-range 20 recv-integer)) (send-array 3926 (send-range 20 send-int8)))
-   (3907 numrange-array    9.2 (recv-array 3906 (recv-range 1700 recv-numeric)) (send-array 3906 (send-range 1700 send-numeric)))
-   (3909 tsrange-array     9.2 (recv-array 3908 (recv-range 1114 recv-timestamp)) (send-array 3908 (send-range 1114 send-timestamp)))
-   (3911 tstzrange-array   9.2 (recv-array 3910 (recv-range 1184 recv-timestamptz)) (send-array 3910 (send-range 1184 send-timestamptz)))
-   (3913 daterange-array   9.2 (recv-array 3912 (recv-range 1082 recv-date)) (send-array 3912 (send-range 1082 send-date)))
-
-   (2275 cstring           0   recv-string send-string)
+   (705  unknown      0   recv-string       send-string)
+   (2275 cstring      0   recv-string       send-string)
 
    ;; Receive but do not send
-   (2278 void              #f  recv-void   #f)
+   (2278 void         #f  recv-void         #f)
 
    ;; Handled specially by typeid->typeinfo method
    ;; (2249 record            #f  recv-record #f)
@@ -873,6 +829,58 @@ jsonb = version:byte byte*
    (3643 tsvector-array    #f #f #f)
    (3644 gtsvector-array   #f #f #f)
    (3645 tsquery-array     #f #f #f)))
+
+(define array-types
+  '((1000 boolean-array     0   16)
+    (1001 bytea-array       0   17)
+    (1002 char1-array       0   18)
+    (1003 name-array        0   19)
+    (1005 smallint-array    0   21)
+    (1007 integer-array     0   23)
+    (1009 text-array        0   25)
+    (1028 oid-array         0   26)
+    (1014 character-array   0   1042)
+    (1015 varchar-array     0   1043)
+    (1016 bigint-array      0   20)
+    (1017 point-array       0   600)
+    (1018 lseg-array        0   601)
+    (1019 path-array        0   602)
+    (1020 box-array         0   603)
+    (1021 real-array        0   700)
+    (1022 double-array      0   701)
+    (1027 polygon-array     0   604)
+    (719  circle-array      0   718)
+    (1561 bit-array         0   1560)
+    (1563 varbit-array      0   1562)
+    (199  json-array        9.2 114)
+    (3807 jsonb-array       9.4 3802)
+
+    (1115 timestamp-array   0   1114)
+    (1182 date-array        0   1082)
+    (1183 time-array        0   1083)
+    (1185 timestamptz-array 0   1184)
+    (1187 interval-array    0   1186)
+    (1231 decimal-array     0   1700)
+    (1270 timetz-array      0   1266)
+
+    (2951 uuid-array        0   2950)
+
+    (3905 int4range-array   9.2 3904)
+    (3927 int8range-array   9.2 3926)
+    (3907 numrange-array    9.2 3906)
+    (3909 tsrange-array     9.2 3908)
+    (3911 tstzrange-array   9.2 3910)
+    (3913 daterange-array   9.2 3912)
+    ))
+
+(define typeid=>typeinfo
+  (for/fold ([h (base-table)])
+            ([array-entry (in-list array-types)])
+    (match-define (list typeid typename since elem-typeid) array-entry)
+    (match-define (typeinfo _ _ elem-reader elem-writer) (hash-ref h elem-typeid))
+    (define reader (recv-array elem-typeid elem-reader))
+    (define writer (send-array elem-typeid elem-writer))
+    (hash-set h typeid (typeinfo typename since reader writer))))
 
 (define typeid:record 2249)
 (define typeid:record-array 2287)
