@@ -32,6 +32,7 @@
                   ;; If present, should have same custodian as underlying
                   ;; ports. Useful because SSL obscures port closure.
                   custodian-b)
+    (init-field [dbsystem dbsystem/integer-datetimes]) ;; see connect:after-auth
     (define inport #f)
     (define outport #f)
     (define process-id #f)
@@ -160,7 +161,9 @@
                   (error* fsym "client character encoding changed, disconnecting"
                           '("new encoding" value) value))]
                [(equal? name "integer_datetimes")
-                (set! integer-datetimes? (equal? value "on"))]
+                (set! integer-datetimes? (equal? value "on"))
+                (unless (equal? integer-datetimes? (send dbsystem get-integer-datetimes?))
+                  (set! dbsystem (send dbsystem copy #:integer-datetimes? integer-datetimes?)))]
                [else (void)])]))
 
     ;; async-message-evt : -> (Evt-of Boolean)
@@ -212,10 +215,7 @@
 
     ;; == System
 
-    (define/public (get-dbsystem)
-      (if integer-datetimes?
-          dbsystem/integer-datetimes
-          dbsystem/floating-point-datetimes))
+    (define/public (get-dbsystem) dbsystem)
 
     ;; ========================================
 
@@ -397,9 +397,11 @@
                    (error/internal* 'query1:enqueue "statement was deleted"
                                     "statement" (send pst get-stmt)))
                  (buffer-message (make-Bind portal pst-name
-                                            (map typeid->format (send pst get-param-typeids))
+                                            (send dbsystem typeids->formats
+                                                  (send pst get-param-typeids))
                                             params
-                                            (map typeid->format (send pst get-result-typeids)))))]
+                                            (send dbsystem typeids->formats
+                                                  (send pst get-result-typeids)))))]
               [(string? stmt)
                (buffer-message (make-Parse "" stmt '()))
                (buffer-message (make-Bind portal "" '() '() '(1)))])
@@ -490,10 +492,7 @@
          (simple-result command)]))
 
     (define/private (query1:get-type-readers fsym field-dvecs)
-      (map (lambda (dvec)
-             (let ([typeid (field-dvec->typeid dvec)])
-               (typeid->type-reader fsym typeid)))
-           field-dvecs))
+      (send dbsystem field-dvecs->type-readers fsym field-dvecs))
 
     ;; == Cursor
 

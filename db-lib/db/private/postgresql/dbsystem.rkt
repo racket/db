@@ -15,18 +15,21 @@
          "../../util/postgresql.rkt"
          (only-in "message.rkt" field-dvec->typeid))
 (provide dbsystem/integer-datetimes
-         dbsystem/floating-point-datetimes
-         typeid->type-reader
-         typeid->format
          use-integer-datetimes?
          classify-pg-sql)
 
 (define postgresql-dbsystem%
   (class* dbsystem-base% (dbsystem<%>)
     (init-field integer-datetimes?)
+    (super-new)
 
     (define/public (get-short-name) 'postgresql)
     (define/override (get-type-list) type-list)
+
+    (define/public (get-integer-datetimes?) integer-datetimes?)
+
+    (define/public (copy #:integer-datetimes? [idt? integer-datetimes?])
+      (new this% (integer-datetimes? idt?)))
 
     (define/public (has-support? option)
       (case option
@@ -47,19 +50,26 @@
     (define/public (field-dvecs->typeids dvecs)
       (map field-dvec->typeid dvecs))
 
+    (define/public (field-dvecs->type-readers who dvecs)
+      (for/list ([dvec (in-list dvecs)])
+        (typeid->type-reader who (field-dvec->typeid dvec))))
+
+    (define/public (typeids->formats typeids)
+      (map typeid->format typeids))
+
+    (define/public (typeids->type-readers typeids)
+      (map typeid->type-reader typeids))
+
     (define/public (describe-params typeids)
       (map describe-typeid typeids))
 
     (define/public (describe-fields field-dvecs)
       (for/list ([dvec (in-list field-dvecs)])
         (describe-typeid (field-dvec->typeid dvec))))
-
-    (super-new)))
+    ))
 
 (define dbsystem/integer-datetimes
   (new postgresql-dbsystem% (integer-datetimes? #t)))
-(define dbsystem/floating-point-datetimes
-  (new postgresql-dbsystem% (integer-datetimes? #f)))
 
 ;; ========================================
 
