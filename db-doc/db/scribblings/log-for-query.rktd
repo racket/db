@@ -185,7 +185,7 @@
   1
   (((lib "db/private/generic/sql-data.rkt") . deserialize-info:sql-null-v0))
   3
-  ("car" "ford" "bike")
+  ("bike" "car" "ford")
   ()
   (c
    values
@@ -193,11 +193,11 @@
    (h
     -
     (equal)
-    ((0) v! (? . 2) "schwinn")
-    ("civic" v! (? . 0) "honda")
-    ("pinto" v! (? . 0) (? . 1))
-    ("focus" v! (? . 0) (? . 1))
-    ("boulder" v! (? . 2) "giant"))))
+    ((0) v! (? . 0) "schwinn")
+    ("boulder" v! (? . 0) "giant")
+    ("pinto" v! (? . 1) (? . 2))
+    ("focus" v! (? . 1) (? . 2))
+    ("civic" v! (? . 1) "honda"))))
  #""
  #"")
 ((rows->dict
@@ -221,8 +221,8 @@
     -
     (equal)
     ("ford" q "focus" "pinto")
-    ("honda" q "civic")
     ("giant" q "boulder")
+    ("honda" q "civic")
     ("schwinn"))))
  #""
  #"")
@@ -260,6 +260,8 @@
    (c
     (c severity u . "ERROR")
     c
+    (c severity* u . "ERROR")
+    c
     (c code u . "42P01")
     c
     (c message u . "relation \"nosuchtable\" does not exist")
@@ -268,7 +270,7 @@
     c
     (c file u . "parse_relation.c")
     c
-    (c line u . "857")
+    (c line u . "1194")
     c
     (c routine u . "parserOpenTable"))))
  #""
