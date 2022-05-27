@@ -9,7 +9,7 @@
     [(struct sql-date (year month day))
      (srfi:make-date 0 0 0 0 day month year 0)]
     [(struct sql-time (hour minute second nanosecond tz))
-     (srfi:make-date nanosecond second minute hour 0 0 0 (or tz 0))]
+     (srfi:make-date nanosecond second minute hour 1 1 0 (or tz 0))]
     [(struct sql-timestamp (year month day hour minute second nanosecond tz))
      (srfi:make-date nanosecond second minute hour day month year (or tz 0))]))
 
