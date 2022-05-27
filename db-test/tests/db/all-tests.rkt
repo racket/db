@@ -15,6 +15,7 @@
                     (combine-in "db/connection.rkt"
                                 "db/query.rkt"
                                 "db/sql-types.rkt"
+                                "db/special.rkt"
                                 "db/concurrent.rkt")))
 (provide (all-defined-out))
 
@@ -171,6 +172,7 @@ Testing profiles are flattened, not hierarchical.
           (tag connect (prefix connect: test^))
           (tag query (prefix query: test^))
           (tag sql-types (prefix sql-types: test^))
+          (tag special (prefix special: test^))
           (tag concurrent (prefix concurrent: test^)))
   (export test^)
   (define test
@@ -179,6 +181,7 @@ Testing profiles are flattened, not hierarchical.
      (list connect:test
            query:test
            sql-types:test
+           special:test
            concurrent:test))))
 
 (define (specialize-test@ db@)
@@ -190,12 +193,14 @@ Testing profiles are flattened, not hierarchical.
          (((CONNECT-TEST : test^)) db-connection@ CONFIG DB)
          (((QUERY-TEST : test^)) db-query@ CONFIG DB)
          (((SQL-TYPES-TEST : test^)) db-sql-types@ CONFIG DB)
+         (((SPECIAL-TEST : test^)) db-special@ CONFIG DB)
          (((CONCURRENT-TEST : test^)) db-concurrent@ CONFIG DB)
          (((DB-TEST : test^)) db-test@
                                DB
                                (tag connect CONNECT-TEST)
                                (tag query QUERY-TEST)
                                (tag sql-types SQL-TYPES-TEST)
+                               (tag special SPECIAL-TEST)
                                (tag concurrent CONCURRENT-TEST)))))
 
 (define (specialize-test db@)
