@@ -542,6 +542,7 @@
 (define (char->message-tag c)
   (case c
     [(#\S) 'severity]
+    [(#\V) 'severity*]
     [(#\C) 'code]
     [(#\M) 'message]
     [(#\D) 'detail]
@@ -550,6 +551,11 @@
     [(#\p) 'internal-position]
     [(#\q) 'internal-query]
     [(#\W) 'where]
+    [(#\s) 'schema]
+    [(#\t) 'table]
+    [(#\c) 'column]
+    [(#\d) 'datatype]
+    [(#\n) 'constraint]
     [(#\F) 'file]
     [(#\L) 'line]
     [(#\R) 'routine]))
