@@ -109,7 +109,7 @@ structures to and from WKB format is supported by the
   Returns @racket[#t] if @racket[x] is a @racket[point],
   @racket[line-string], @racket[polygon], @racket[multi-point],
   @racket[multi-line-string], @racket[multi-polygon], or
-  @racket[geometry-collection]; @racket[#f] othewise.
+  @racket[geometry-collection]; @racket[#f] otherwise.
 }
 
 @defproc[(line? [x any/c]) boolean?]{

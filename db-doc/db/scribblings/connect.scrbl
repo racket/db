@@ -392,7 +392,7 @@ Reports whether the SQLite native library is found, in which case
 @defproc[(odbc-data-sources)
          (listof (list/c string? string?))]{
 
-  Returns a list of known ODBC Data Sources. Each data souce is
+  Returns a list of known ODBC Data Sources. Each data source is
   represented by a list of two strings; the first string is the name
   of the data source, and the second is the name of its associated
   driver.
