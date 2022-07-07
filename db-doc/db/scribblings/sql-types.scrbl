@@ -544,7 +544,7 @@ values.
 @subsection{Bits}
 
 The @tt{BIT} and @tt{BIT VARYING} (@tt{VARBIT}) SQL types are
-represented by bit-vectors (@racketmodname[data/bit-vector]).
+represented by bit-vectors (@racketmodname[data/bit-vector #:indirect]).
 
 The following functions are provided for backwards compatibility. They
 are deprecated and will be removed in a future release of Racket.
@@ -566,7 +566,7 @@ are deprecated and will be removed in a future release of Racket.
 @defproc[(list->sql-bits [lst (listof boolean?)]) sql-bits?]
 @defproc[(string->sql-bits [s string?]) sql-bits?]]]{
 
-Deprecated; use @racketmodname[data/bit-vector] instead.
+Deprecated; use @racketmodname[data/bit-vector #:indirect] instead.
 
 }
 
