@@ -236,7 +236,7 @@ Testing profiles are flattened, not hierarchical.
  [("-s" "--sqlite3") "Run sqlite3 in-memory db tests" (set! include-sqlite? #t)]
  [("-f" "--config-file") file  "Use configuration file" (pref-file file)]
  [("-p" "--add-use-place") "Add #:use-place variants" (set! add-use-place? #t)]
- [("--testing-dsn-file") "Use testing DSN file" (current-dsn-file testing-dsn)]
+ [("-t" "--testing-dsn-file") "Use testing DSN file" (current-dsn-file testing-dsn)]
  #:args labels
  (let ()
    (define no-labels? (not (or include-sqlite? (pair? labels))))
