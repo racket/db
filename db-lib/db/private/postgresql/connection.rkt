@@ -24,6 +24,8 @@
      (->m (listof pg-custom-type?) void?)]
     [async-message-evt
      (->m evt?)]
+    [cancel
+     (->m void?)]
     ))
 
 ;; ========================================
@@ -43,11 +45,16 @@
                   ;; custodian-b : (U #f (custodian-box Boolean))
                   ;; If present, should have same custodian as underlying
                   ;; ports. Useful because SSL obscures port closure.
-                  custodian-b)
+                  custodian-b
+                  ;; connect&attach-proc : connection% -> Boolean
+                  ;; Used to establish a new connection to the server
+                  ;; when issuing cancel requests.
+                  connect&attach-proc)
     (init-field [dbsystem dbsystem/integer-datetimes]) ;; see connect:after-auth
     (define inport #f)
     (define outport #f)
     (define process-id #f)
+    (define secret-key #f)
     (define integer-datetimes? 'unknown)  ;; see connect:after-auth
 
     (inherit call-with-lock
@@ -204,6 +211,34 @@
                     #f
                     #f))))))))
 
+    (define/public (cancel)
+      (define conn
+        (new this%
+             [notice-handler void]
+             [notification-handler void]
+             [allow-cleartext-password? allow-cleartext-password?]
+             [custodian-b (make-custodian-box (current-custodian) #t)]
+             [connect&attach-proc (lambda (_)
+                                    (error 'connect&attach "nesting not allowed"))]))
+      (with-handlers ([exn:fail? (lambda (e)
+                                   (send conn disconnect* #f)
+                                   (raise e))])
+        (connect&attach-proc conn)
+        (send conn -send-cancel process-id secret-key)
+        (send conn disconnect* #f)))
+
+    (define/public (-send-cancel other-process-id other-secret-key)
+      (when (or process-id secret-key)
+        (error 'cancel "may not be called on real connections"))
+      (call-with-lock 'cancel
+        (lambda ()
+          (send-message (make-CancelRequest other-process-id other-secret-key))
+          ;; Wait for the server to close the connection, which is how
+          ;; we know that it has received the cancel request.
+          (define resp (recv-message 'cancel))
+          (unless (eof-object? resp)
+            (error/internal 'cancel (format "unexpected response to cancel message: ~e" resp))))))
+
     ;; == Connection management
 
     ;; disconnect* : boolean -> void
@@ -328,6 +363,7 @@
            (connect:after-auth)]
           [(struct BackendKeyData (pid secret))
            (set! process-id pid)
+           (set! secret-key secret)
            (connect:expect-ready-for-query)]
           [_
            (error/comm 'postgresql-connect "after authentication")])))
@@ -770,7 +806,7 @@
 ;; ========================================
 
 ;; md5-password : string (U string (list 'hash string)) bytes -> string
-;; Compute the MD5 hash of a password in the form expected by the PostgreSQL 
+;; Compute the MD5 hash of a password in the form expected by the PostgreSQL
 ;; backend.
 (define (md5-password user password salt)
   (let ([hash
