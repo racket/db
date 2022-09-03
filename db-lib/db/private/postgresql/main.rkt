@@ -8,7 +8,8 @@
          "connection.rkt")
 (provide postgresql-connect
          postgresql-guess-socket-path
-         postgresql-password-hash)
+         postgresql-password-hash
+         postgresql-cancel)
 
 (define (postgresql-connect #:user user
                             #:database database
@@ -36,30 +37,35 @@
         [socket
          (if (eq? socket 'guess)
              (postgresql-guess-socket-path)
-             socket)])
+             socket)]
+        [server (or server "localhost")]
+        [port (or port 5432)])
     (when (> connection-options 1)
       (error 'postgresql-connect "cannot give both server/port and socket arguments"))
+    (define (connect&attach c)
+      (define-values (in out local?)
+        (cond
+          [socket
+           (define-values (in out)
+             (unix-socket-connect socket))
+           (values in out #t)]
+          [else
+           (define-values (in out)
+             (tcp-connect server port))
+           (values in out (equal? server "localhost"))]))
+      (send c attach-to-ports in out ssl ssl-context (if socket #f server))
+      local?)
     (let ([c (new connection%
                   (notice-handler notice-handler)
                   (notification-handler notification-handler)
                   (allow-cleartext-password? allow-cleartext-password?)
-                  (custodian-b (make-custodian-box (current-custodian) #t)))])
+                  (custodian-b (make-custodian-box (current-custodian) #t))
+                  (connect&attach-proc connect&attach))])
       (when debug? (send c debug #t))
-      (with-handlers
-         ([exn? (lambda (e)
-                  (send c disconnect* #f)
-                  (raise e))])
-        (define local?
-          (cond [socket
-                 (define-values (in out) (unix-socket-connect socket))
-                 (send c attach-to-ports in out ssl ssl-context #f)
-                 #t]
-                [else
-                 (let ([server (or server "localhost")]
-                       [port (or port 5432)])
-                   (define-values (in out) (tcp-connect server port))
-                   (send c attach-to-ports in out ssl ssl-context server)
-                   (equal? server "localhost"))]))
+      (with-handlers ([exn? (lambda (e)
+                              (send c disconnect* #f)
+                              (raise e))])
+        (define local? (connect&attach c))
         (send c start-connection-protocol database user password local?))
       c)))
 
@@ -81,3 +87,6 @@
 
 (define (postgresql-password-hash user password)
   (bytes->string/latin-1 (password-hash user password)))
+
+(define (postgresql-cancel conn)
+  (send conn cancel))

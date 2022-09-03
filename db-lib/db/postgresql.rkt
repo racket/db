@@ -23,4 +23,6 @@
  [postgresql-guess-socket-path
   (-> path-string?)]
  [postgresql-password-hash
-  (-> string? string? string?)])
+  (-> string? string? string?)]
+ [postgresql-cancel
+  (-> connection? void?)])
