@@ -3,7 +3,8 @@
          rackunit
          "../config.rkt"
          db/base
-         db/util/postgresql)
+         db/util/postgresql
+         (only-in db/postgresql postgresql-cancel))
 (import database^ config^)
 (export test^)
 
@@ -48,6 +49,26 @@
           (define val (query-value c "select intpair '(123,456)'"))
           (check-pred bytes? val)
           (check-equal? (query-value c "select $1::intpair" val) val)
-          (check-equal? (query-value c "select ($1::intpair).car" val) 123))))
+          (check-equal? (query-value c "select ($1::intpair).car" val) 123)))
+
+      (test-case "postgresql-cancel: noop when there are no queries in progress"
+        (with-connection c
+          (postgresql-cancel c)
+          (check-equal? (query-value c "select 1") 1)))
+
+      (test-case "postgresql-cancel: cancels queries in progress"
+        (with-connection c
+          (define ch
+            (make-channel))
+          (thread
+           (lambda ()
+             (with-handlers ([exn:fail? (λ (e) (channel-put ch e))])
+               (query-exec c "select pg_sleep(10)")
+               (channel-put ch 'fail))))
+          (sync (system-idle-evt))
+          (postgresql-cancel c)
+          (define e (channel-get ch))
+          (check-true (exn:fail:sql? e))
+          (check-regexp-match #rx"canceling statement due to user request" (exn-message e)))))
 
     ))
