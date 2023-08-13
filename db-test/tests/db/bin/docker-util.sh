@@ -1,8 +1,5 @@
 #!/bin/bash
 
-set -e -u
-set -o pipefail
-
 # In normal mode: starts or stops a database server container.
 
 # In wait mode (-w): starts a database server and waits for either
@@ -19,9 +16,44 @@ set -o pipefail
 #   $ racket all-tests.rkt -t pg        # run tests
 #   $ fg                                # <Ctrl-C> to stop server
 
+# Testing with a specific docker image:
+#   $ sudo bin/docker-util.sh pg postgres:12      # start server, PostgreSQL 12.x
+#   $ racket all-tests.rkt -t pg        # run tests
+#   $ sudo bin/docker-util.sh stop      # stop server
+
+# Note: 'sudo' is necessary for default docker configuration, but may be
+# unnecessary for rootless docker, podman, etc.
+
 # The configurations below are compatible with "../test-dsn.rktd".
 
 # See also https://github.com/racket/db/wiki/testing-with-docker.
+
+# ------------------------------------------------------------
+
+## Set DOCKER env variable to *full path* of docker-compatible executable,
+## otherwise defaults to "docker" or "podman", if available.
+
+DOCKER="${DOCKER:-}"
+if [ -z "$DOCKER" ] ; then
+    DOCKER=`which docker`
+fi
+if [ -z "$DOCKER" ] ; then
+    DOCKER=`which podman`
+fi
+
+set -e -u
+set -o pipefail
+
+if [ -z "$DOCKER" ] ; then
+    echo "docker-util: cannot find docker-compatible command" >&2
+    exit 1
+elif [ ! -f "$DOCKER" ] ; then
+    echo "docker-util: docker command ($DOCKER) not found" >&2
+    exit 1
+elif [ ! -x "$DOCKER" ] ; then
+    echo "docker-util: docker command ($DOCKER) is not executable" >&2
+    exit 1
+fi
 
 # ------------------------------------------------------------
 
@@ -30,109 +62,108 @@ set -o pipefail
 # (--rm).
 
 COMMON_OPTS="--name testdb --rm -d"
+DBIMAGE=""  # mutated below
 
 start_pg_md5() {
-    need_image "postgres"
-    docker run $COMMON_OPTS --publish 5432:5432 \
+    DBIMAGE="${DBIMAGE:-postgres}"
+    need_image "$DBIMAGE"
+    "$DOCKER" run $COMMON_OPTS --publish 5432:5432 \
            -e POSTGRES_USER=rkt \
            -e POSTGRES_PASSWORD=rktpwd \
-           -e POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 \
-           -e POSTGRES_HOST_AUTH_METHOD=scram-sha-256 \
-           postgres \
+           -e POSTGRES_HOST_AUTH_METHOD=md5 \
+           "$DBIMAGE" \
            -c 'ssl=on' \
            -c 'ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem' \
            -c 'ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key'
 }
 
 start_pg_scram() {
-    need_image "postgres"
-    docker run $COMMON_OPTS --publish 5432:5432 \
+    DBIMAGE="${DBIMAGE:-postgres}"
+    need_image "$DBIMAGE"
+    "$DOCKER" run $COMMON_OPTS --publish 5432:5432 \
            -e POSTGRES_USER=rkt \
            -e POSTGRES_PASSWORD=rktpwd \
            -e POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 \
            -e POSTGRES_HOST_AUTH_METHOD=scram-sha-256 \
-           postgres \
+           "$DBIMAGE" \
            -c 'ssl=on' \
            -c 'ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem' \
            -c 'ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key'
 }
 
 start_mysql() {
-    need_image "mysql"
-    docker run $COMMON_OPTS --publish 3306:3306 \
+    DBIMAGE="${DBIMAGE:-mysql}"
+    need_image "$DBIMAGE"
+    "$DOCKER" run $COMMON_OPTS --publish 3306:3306 \
            -e MYSQL_ROOT_PASSWORD=myrootpwd \
            -e MYSQL_USER=rkt \
            -e MYSQL_PASSWORD=rktpwd \
            -e MYSQL_DATABASE=rkt \
-           mysql
-}
-
-start_mariadb() {
-    need_image "mariadb"
-    docker run $COMMON_OPTS --publish 3306:3306 \
-           -e MYSQL_ROOT_PASSWORD=myrootpwd \
-           -e MYSQL_USER=rkt \
-           -e MYSQL_PASSWORD=rktpwd \
-           -e MYSQL_DATABASE=rkt \
-           mariadb
+           "$DBIMAGE"
 }
 
 start_oracle() {
-    if [ -z `docker image ls -q oracle/database:11.2.0.2-xe` ] ; then
-        echo "Missing image 'oracle/database:11.2.0.2-xe'..." > /dev/stderr
-        echo "Build from https://github.com/oracle/docker-images" > /dev/stderr
-        exit 1
-    fi
-    docker run $COMMON_OPTS --publish 1521:1521 --publish 5500:5500 \
+    DBIMAGE="${DBIMAGE:-oracle/database:11.2.0.2-xe}"
+    need_image "$DBIMAGE" "Build from https://github.com/oracle/docker-images"
+    "$DOCKER" run $COMMON_OPTS --publish 1521:1521 --publish 5500:5500 \
            -e ORACLE_PWD=orapwd \
            --shm-size=1g \
-           oracle/database:11.2.0.2-xe
+           "$DBIMAGE"
 }
 
 start_db2() {
-    need_image ibmcom/db2
-    docker run $COMMON_OPTS -p 50000:50000 \
+    DBIMAGE="${DBIMAGE:-ibmcom/db2}"
+    need_image "$DBIMAGE"
+    "$DOCKER" run $COMMON_OPTS -p 50000:50000 \
            --privileged=true -e LICENSE=accept \
            -e DB2INST1_PASSWORD=db2pwd \
            -e DBNAME=testdb \
-           ibmcom/db2
+           "$DBIMAGE"
 }
 
 start_mssql() {
-    need_image "mcr.microsoft.com/mssql/server"
-    docker run $COMMON_OPTS --publish 1433:1433 \
+    DBIMAGE="${DBIMAGE:-mcr.microsoft.com/mssql/server}"
+    need_image "$DBIMAGE"
+    "$DOCKER" run $COMMON_OPTS --publish 1433:1433 \
            -e 'ACCEPT_EULA=Y' \
            -e 'SA_PASSWORD=abcdEFGH89!' \
            -e 'MSSQL_PID=Express' \
-           mcr.microsoft.com/mssql/server
+           "$DBIMAGE"
 }
 
 start_cassandra() {
-    need_image "cassandra"
-    docker run $COMMON_OPTS --publish 9042:9042 \
-           cassandra
+    DBIMAGE="${DBIMAGE:-cassandra}"
+    need_image "$DBIMAGE"
+    "$DOCKER" run $COMMON_OPTS --publish 9042:9042 \
+           "$DBIMAGE"
 }
 
 # ------------------------------------------------------------
 
 need_image() {
-    images=`docker image ls -q "$1"`
+    images=`"$DOCKER" image ls -q "$1"`
     if [ -z "$images" ] ; then
-        echo "Missing image '$1'" > /dev/stderr
-        echo "Fetch with 'docker pull $1'" > /dev/stderr
+        echo "Missing image '$1'" >&2
+        if [ -z "${2-}" ] ; then
+            echo "Fetch with '$DOCKER pull $1'" >&2
+        else
+            echo "$2" >&2
+        fi
         exit 1
     fi
 }
 
 usage_exit() {
-    echo "Usage: docker-util.sh [-w] {stop | <dbname>}" > /dev/stderr
-    echo "with <dbname> in: $DBNAMES" > /dev/stderr
+    echo "Usage: docker-util.sh [-w] {stop | <dbname>} [<dockerimage>]" >&2
+    echo "with <dbname> in: $DBNAMES" >&2
+    echo "and optional <dockerimage> as in postgres, postgres:12, mariadb:latest, etc." >&2
+    echo "May need to be run with 'sudo' depending on docker configuration." >&2
     exit 1
 }
 
 cleanup() {
     echo "Stopping 'testdb' container."
-    docker stop testdb
+    "$DOCKER" stop testdb
     # Stopping the container should automatically delete it (because it was
     # started with the --rm option), but in case it doesn't, it can be deleted
     # with the following command: 'docker rm --force testdb'.
@@ -156,12 +187,22 @@ while [ "$#" -gt 0 ] ; do
     esac
 done
 
-if [ "$#" -ne "1" ] ; then
-    usage_exit
-fi
+case "$#" in
+    1)
+        DB="$1"
+        DBIMAGE=""
+        ;;
+    2)
+        DB="$1"
+        DBIMAGE="$2"
+        ;;
+    *)
+        usage_exit
+        ;;
+esac
 
 trap 'echo ; cleanup' SIGINT
-case "$1" in
+case "$DB" in
     stop)
         cleanup
         exit 0
@@ -176,7 +217,8 @@ case "$1" in
         start_mysql
         ;;
     mariadb)
-        start_mariadb
+        DBIMAGE="${DBIMAGE:-mariadb}"
+        start_mysql
         ;;
     oracle)
         start_oracle
@@ -195,7 +237,8 @@ case "$1" in
         ;;
 esac
 
-echo "Container 'testdb' started for '$1' database server."
+echo "Container 'testdb' started for '$DB' database server"
+echo "using image '$DBIMAGE'."
 echo "The server might not be available immediately."
 
 case "$WAITMODE" in
@@ -205,6 +248,6 @@ case "$WAITMODE" in
         ;;
     yes)
         echo "Press Ctrl-C to shut down..."
-        docker wait testdb ; echo "Container was shut down from somewhere else."
+        "$DOCKER" wait testdb ; echo "Container was shut down from somewhere else."
         ;;
 esac
