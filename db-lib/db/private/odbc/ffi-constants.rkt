@@ -206,7 +206,14 @@
 (define SQL_TXN_REPEATABLE_READ  #x4)
 (define SQL_TXN_SERIALIZABLE     #x8)
 
-(define SQL_DBMS_NAME 17)
+(define SQL_DATA_SOURCE_NAME        2)
+(define SQL_DRIVER_NAME             6)
+(define SQL_DRIVER_VER              7)
+(define SQL_ODBC_VER               10)
+(define SQL_SERVER_NAME            13)
+(define SQL_DBMS_NAME              17)
+(define SQL_DBMS_VER               18)
+(define SQL_DRIVER_ODBC_VER        77)
 
 (define SQL_ATTR_APP_PARAM_DESC 10011)
 (define SQL_ATTR_APP_ROW_DESC 10010)

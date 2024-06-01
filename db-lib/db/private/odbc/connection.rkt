@@ -126,11 +126,26 @@
              (handle-status 'odbc-connect status db)
              supported?)))
 
-    (define dbms
-      (let-values ([(status result)
-                    (A (SQLGetInfo-string db SQL_DBMS_NAME))])
-        (handle-status 'odbc-connect status db)
-        result))
+    (define/private (get-odbc-info-string who key)
+      (define-values (status result) (A (SQLGetInfo-string db key)))
+      (handle-status who status db)
+      (and result (string->immutable-string result)))
+
+    (define dbms (get-odbc-info-string 'odbc-connect SQL_DBMS_NAME))
+    (define odbc-info #f)
+
+    (define/public (get-odbc-info)
+      (or odbc-info
+          (let ()
+            (define (get key) (get-odbc-info-string 'get-odbc-info key))
+            (set! odbc-info
+                  (hasheq 'dbms-name (get SQL_DBMS_NAME)
+                          'dbms-version (get SQL_DBMS_VER)
+                          'driver-name (get SQL_DRIVER_NAME)
+                          'driver-version (get SQL_DRIVER_VER)
+                          'driver-odbc-version (get SQL_DRIVER_ODBC_VER)
+                          'odbc-version (get SQL_ODBC_VER)))
+            odbc-info)))
 
     (inherit call-with-lock
              call-with-lock*
