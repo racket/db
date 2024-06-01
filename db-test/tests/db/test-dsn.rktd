@@ -29,11 +29,15 @@
  ;; Tests sometimes spuriously fail if connections are made to
  ;; quickly; use sleep-before-connect to work around.
  (ora11 (db odbc-driver
-            ("DRIVER=Oracle 11g ODBC driver;DBQ=localhost:1521/XE;UID=system;PWD=orapwd"
+            ("DRIVER=Oracle 11g ODBC driver;DBQ=localhost:1521/FREE;UID=system;PWD=orapwd"
              #:quirks (no-c-bigint))
             ((db:test (isora sleep-before-connect no-date no-time)))))
  (ora19 (db odbc-driver
-            ("DRIVER=Oracle 19 ODBC driver;DBQ=localhost:1521/XE;UID=system;PWD=orapwd"
+            ("DRIVER=Oracle 19 ODBC driver;DBQ=localhost:1521/FREE;UID=system;PWD=orapwd"
+             #:quirks (no-c-bigint))
+            ((db:test (isora sleep-before-connect no-date no-time)))))
+ (ora21 (db odbc-driver
+            ("DRIVER=Oracle 21 ODBC driver;DBQ=localhost:1521/FREE;UID=system;PWD=orapwd"
              #:quirks (no-c-bigint))
             ((db:test (isora sleep-before-connect no-date no-time)))))
 

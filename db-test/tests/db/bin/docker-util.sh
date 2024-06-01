@@ -132,10 +132,10 @@ start_mysql() {
 }
 
 start_oracle() {
-    DBIMAGE="${DBIMAGE:-oracle/database:11.2.0.2-xe}"
-    need_image "$DBIMAGE" "Build from https://github.com/oracle/docker-images"
+    DBIMAGE="${DBIMAGE:-container-registry.oracle.com/database/free}"
+    need_image "$DBIMAGE"
     "$DOCKER" run $COMMON_OPTS --publish 1521:1521 --publish 5500:5500 \
-           -e ORACLE_SID=XE \
+           -e ORACLE_SID=FREE \
            -e ORACLE_PWD=orapwd \
            --shm-size=1g \
            "$DBIMAGE"
