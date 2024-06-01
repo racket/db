@@ -157,7 +157,7 @@ considered important.
      (let* ([kws (map list kws kwargs)]
             [file-entry (assq '#:dsn-file kws)]
             [kws* (if file-entry (remq file-entry kws) kws)]
-            [file (if file-entry (cdr file-entry) (current-dsn-file))])
+            [file (if file-entry (cadr file-entry) (current-dsn-file))])
        (unless (or (symbol? name) (data-source? name))
          (error 'dsn-connect
                 "expected symbol for first argument, got: ~e" name))
