@@ -1,6 +1,7 @@
 #lang racket/base
 (require db
-         ffi/unsafe/os-thread)
+         ffi/unsafe/os-thread
+         (only-in db/private/generic/interfaces log-db-debug))
 
 ;; This program is a non-automated test of custodian shutdown of
 ;; sqlite3 connections with an active OS thread.
@@ -9,7 +10,7 @@
 ;; Expect the following pattern:
 ;;   db: disconnect delayed by OS thread
 ;;   (pause)
-;;   result = ...
+;;   db: result = ...
 ;;   db: continuing delayed disconnect
 
 (unless (os-thread-enabled?)
@@ -37,5 +38,6 @@
        (custodian-shutdown-all cust))))
 
   (sync sema)
-  (printf "result = ~s\n" (query-value c pst))
+  (let ([result (query-value c pst)]) ;; eval even if no logging
+    (log-db-debug "result = ~s" result))
   (void))

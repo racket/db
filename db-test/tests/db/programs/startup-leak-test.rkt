@@ -1,6 +1,10 @@
 #lang racket/base
 (require racket/os
-         racket/port)
+         racket/port
+         racket/string)
+
+;; Link libssl.so, libcrypto.so before running test.
+(require openssl)
 
 #|
 This program tests that open files are cleaned up when an exception is
@@ -25,9 +29,10 @@ raised during connection start.
            (define-values (proc out in err)
              (subprocess #f #f #f lsof "-wnPp" (number->string (getpid))))
            (thread
-             (lambda () (copy-port err (current-error-port))))
-           (begin0
-             (sub1 (length (port->lines out)))
+            (lambda () (copy-port err (current-error-port))))
+           (define lines (port->lines out))
+           (printf "lsof:\n  ~a\n" (string-join lines "\n  "))
+           (begin0 (sub1 (length lines))
              (subprocess-wait proc)
              (unless (equal? 0 (subprocess-status proc))
                (error "lsof returned non-zero status"))))
@@ -81,12 +86,15 @@ raised during connection start.
   (unless (= (unbox connection-attempts) expected-connection-attempts)
     (error "expected number of connection attempts not made, try --verbose"))
 
-  (when (> open-files-end (+ 5 open-files-start))
+  ;; Strict equality seems to work, given (require openssl) first.
+  ;; May need to allow some slack in future if used dylibs change, etc.
+  (unless (= open-files-end open-files-start)
     (printf "Started with ~a open files and ended with ~a, files are leaking~n"
             open-files-start
             open-files-end)
     (exit 1))
 
-  (printf "Test passed~n"))
+  (when #t
+    (printf "Test passed\n")))
 
 (module+ test)

@@ -1,5 +1,6 @@
 #lang racket/base
 (require db
+         racket/cmdline
          racket/match)
 
 ;; This tests custodian shutdowns connections.
@@ -14,15 +15,17 @@
 ;; Test sqlite3 if no dsn, test dsn if present.
 
 (define dsn #f)
-(match (current-command-line-arguments)
-  [(vector dsn-string)
-   (set! dsn (string->symbol dsn-string))]
-  [(vector)
-   (void)]
-  [_
-   (error 'test "script takes one optional DSN argument")])
+(define verbose? #f)
 
-(printf "Running tests for ~a.\n" (or dsn 'sqlite3))
+(command-line
+ #:once-each
+ [("-v" "--verbose") "Verbose" (set! verbose? #t)]
+ #:args ([dsn-string #f])
+ (when dsn-string
+   (set! dsn (string->symbol dsn-string))))
+
+(when verbose?
+  (printf "Running tests for ~a.\n" (or dsn 'sqlite3)))
 
 (define shutdown-exn? #f)
 
@@ -59,13 +62,14 @@
            (error 'test "still connected after shutdown"))
          (when (regexp-match #rx"disconnected during operation" (exn-message result))
            (set! shutdown-exn? #t))
-         (printf "... got exn: ~.s\n" (exn-message result))]))
+         (when verbose?
+           (printf "... got exn: ~.s\n" (exn-message result)))]))
 
 (for ([i 100]
       #:break shutdown-exn?)
-  (printf "Test run ~s" i)
+  (when verbose? (printf "Test run ~s" i))
   (run-test i))
 
 (unless shutdown-exn?
   (error 'test "did not see expected exception, 'disconnected during operation'"))
-(printf "Success\n")
+(when verbose? (printf "Success\n"))

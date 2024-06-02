@@ -5,6 +5,7 @@
          net/url
          net/url-connect
          racket/port
+         racket/runtime-path
          db)
 
 (module test racket/base)
@@ -24,12 +25,14 @@ Errors to watch for:
    This would be bad; all connections are locked up. I haven't seen it happen.
 |#
 
+(define-runtime-path dsn-file "../test-dsn.rktd")
+
 (define NOISY? #f)
 
 (define c (virtual-connection
            (connection-pool
-            (lambda () (dsn-connect 'pg))
-            #:max-connections 12)))
+            (lambda () (dsn-connect #:dsn-file dsn-file 'pg))
+            #:max-connections 18)))
 
 (unless (table-exists? c "foo")
   (query-exec c "create table foo (n integer, s text)"))

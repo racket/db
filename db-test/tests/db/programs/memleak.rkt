@@ -1,11 +1,14 @@
 #lang racket/base
 (require (prefix-in db: db)
+         racket/runtime-path
          racket/match
          racket/class)
 
 ;; Test for db memory leaks
 
 ;; FIXME: mysql quickly exhausts prepared statement limit
+
+(define-runtime-path dsn-file "../test-dsn.rktd")
 
 (define the-dsn
   (match (current-command-line-arguments)
@@ -27,7 +30,7 @@
 
 (define (get-c)
   (printf "-- connect\n")
-  (let ([c (db:dsn-connect the-dsn)])
+  (let ([c (db:dsn-connect #:dsn-file dsn-file the-dsn)])
     (case start-tx-mode
       ((tx) (db:start-transaction c))
       ((no) (void)))
