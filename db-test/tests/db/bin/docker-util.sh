@@ -1,37 +1,60 @@
 #!/bin/bash
 
-# In normal mode: starts or stops a database server container.
+print_usage() {
+    cat <<EOF
+Usage: docker-util.sh [-w] {stop | <dbname>} [<dockerimage>]
+with <dbname> in: pg pg-scram my mariadb oracle db2 mssql cassandra
+and optional <dockerimage> as in postgres, postgres:12, mariadb:latest, etc.
+May need to be run with 'sudo' depending on docker configuration.
+Run 'docket-util.sh -h' for extended help.
+EOF
+}
 
-# In wait mode (-w): starts a database server and waits for either
-# - keyboard interrupt (Ctrl-C) => shuts down the server
-# - server container shutdown => prints message
+print_help() {
+    cat <<EOF
+CONFIGURATIONS
 
-# One possible pattern of usage:
-#   $ sudo bin/docker-util.sh pg        # start server
-#   $ racket all-tests.rkt -t pg        # run tests
-#   $ sudo bin/docker-util.sh stop      # stop server
+The configurations below are compatible with "../test-dsn.rktd".
+See also https://github.com/racket/db/wiki/testing-with-docker.
 
-# Another possible pattern of usage:
-#   $ sudo bin/docker-util.sh -w pg &   # start server
-#   $ racket all-tests.rkt -t pg        # run tests
-#   $ fg                                # <Ctrl-C> to stop server
+NORMAL MODE
 
-# Testing with a specific docker image:
-#   $ sudo bin/docker-util.sh pg postgres:12      # start server, PostgreSQL 12.x
-#   $ racket all-tests.rkt -t pg        # run tests
-#   $ sudo bin/docker-util.sh stop      # stop server
+In normal mode, this script starts or stops a database server container.
 
-# Note: 'sudo' is necessary for default docker configuration, but may be
-# unnecessary for rootless docker, podman, etc.
+Example usage:
+  $ sudo bin/docker-util.sh pg              # start server
+  $ racket all-tests.rkt -t pg              # run tests
+  $ sudo bin/docker-util.sh stop            # stop server
 
-# The configurations below are compatible with "../test-dsn.rktd".
+Testing with a specific docker image:
+  $ sudo bin/docker-util.sh pg postgres:12  # start server: PostgreSQL 12.x
+  $ racket all-tests.rkt -t pg              # run tests
+  $ sudo bin/docker-util.sh stop            # stop server
 
-# See also https://github.com/racket/db/wiki/testing-with-docker.
+WAIT MODE
+
+In wait mode (-w), this script starts a database server and waits for either
+- keyboard interrupt (Ctrl-C) => shuts down the server
+- server container shutdown => prints message
+
+Example usage:
+  $ sudo bin/docker-util.sh -w pg &         # start server, background
+  $ racket all-tests.rkt -t pg              # run tests
+  $ fg                                      # then <Ctrl-C> to stop server
+
+SUDO
+
+Note: 'sudo' is necessary for default docker configuration, but may be
+unnecessary for rootless docker, podman, etc.
+
+ENVIRONMENT VARIABLES
+
+- DOCKER: Set this to the full path of a docker-compatible executable,
+  otherwise the script defaults to "docker" or "podman", if available.
+EOF
+}
 
 # ------------------------------------------------------------
-
-## Set DOCKER env variable to *full path* of docker-compatible executable,
-## otherwise defaults to "docker" or "podman", if available.
 
 DOCKER="${DOCKER:-}"
 if [ -z "$DOCKER" ] ; then
@@ -44,24 +67,30 @@ fi
 set -e -u
 set -o pipefail
 
-if [ -z "$DOCKER" ] ; then
-    echo "docker-util: cannot find docker-compatible command" >&2
-    exit 1
-elif [ ! -f "$DOCKER" ] ; then
-    echo "docker-util: docker command ($DOCKER) not found" >&2
-    exit 1
-elif [ ! -x "$DOCKER" ] ; then
-    echo "docker-util: docker command ($DOCKER) is not executable" >&2
-    exit 1
-fi
+check_docker_available() {
+    if [ -z "$DOCKER" ] ; then
+        echo "docker-util: cannot find docker-compatible command" >&2
+        echo "Run 'docket-util.sh -h' for extended help." >&2
+        exit 1
+    elif [ ! -f "$DOCKER" ] ; then
+        echo "docker-util: docker command ($DOCKER) not found" >&2
+        echo "Run 'docket-util.sh -h' for extended help." >&2
+        exit 1
+    elif [ ! -x "$DOCKER" ] ; then
+        echo "docker-util: docker command ($DOCKER) is not executable" >&2
+        echo "Run 'docket-util.sh -h' for extended help." >&2
+        exit 1
+    fi
+}
 
 # ------------------------------------------------------------
 
-# All of the commands below create a container named 'testdb', run it in the
-# background (-d), and set the container for automatic deletion when it stops
-# (--rm).
-
+# All of the commands below
+# - create a container named 'testdb',
+# - run it in the background (-d), and
+# - set the container for automatic deletion when it stops (--rm)
 COMMON_OPTS="--name testdb --rm -d"
+DEBUG_OPTS="--name testdb --rm"
 DBIMAGE=""  # mutated below
 
 start_pg_md5() {
@@ -106,6 +135,7 @@ start_oracle() {
     DBIMAGE="${DBIMAGE:-oracle/database:11.2.0.2-xe}"
     need_image "$DBIMAGE" "Build from https://github.com/oracle/docker-images"
     "$DOCKER" run $COMMON_OPTS --publish 1521:1521 --publish 5500:5500 \
+           -e ORACLE_SID=XE \
            -e ORACLE_PWD=orapwd \
            --shm-size=1g \
            "$DBIMAGE"
@@ -154,11 +184,15 @@ need_image() {
 }
 
 usage_exit() {
-    echo "Usage: docker-util.sh [-w] {stop | <dbname>} [<dockerimage>]" >&2
-    echo "with <dbname> in: $DBNAMES" >&2
-    echo "and optional <dockerimage> as in postgres, postgres:12, mariadb:latest, etc." >&2
-    echo "May need to be run with 'sudo' depending on docker configuration." >&2
+    print_usage >&2
     exit 1
+}
+
+help_exit() {
+    print_usage >&2
+    echo
+    print_help >&2
+    exit 0
 }
 
 cleanup() {
@@ -171,8 +205,6 @@ cleanup() {
 
 # ------------------------------------------------------------
 
-DBNAMES="pg pg-scram my mariadb oracle db2 mssql cassandra"
-
 WAITMODE=no     # "no" or "yes"
 
 while [ "$#" -gt 0 ] ; do
@@ -181,11 +213,20 @@ while [ "$#" -gt 0 ] ; do
             WAITMODE=yes
             shift 1
             ;;
+        -d)
+            COMMON_OPTS="$DEBUG_OPTS"
+            shift 1
+            ;;
+        -h)
+            help_exit
+            ;;
         *)
             break
             ;;
     esac
 done
+
+check_docker_available
 
 case "$#" in
     1)
