@@ -142,12 +142,18 @@ start_oracle() {
 }
 
 start_db2() {
+    # Without separate volume mounted with :Z flag, fails. Still not sure why.
+    # - https://github.com/containers/podman/issues/3683
+    # - https://www.redhat.com/sysadmin/container-permission-denied-errors
     DBIMAGE="${DBIMAGE:-ibmcom/db2}"
     need_image "$DBIMAGE"
+    TMPDIR=`mktemp -d --tmpdir racket-test-db2.XXX`
+    echo ; echo "Created temporary dir $TMPDIR" ; echo
     "$DOCKER" run $COMMON_OPTS -p 50000:50000 \
            --privileged=true -e LICENSE=accept \
            -e DB2INST1_PASSWORD=db2pwd \
            -e DBNAME=testdb \
+           -v "$TMPDIR":/database:Z \
            "$DBIMAGE"
 }
 
