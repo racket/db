@@ -321,7 +321,8 @@ Interface for additional operations implemented by connections created with
 
 Registers the given @racket[types] with @(this-obj) for use as query parameter
 and result types. See @racket[pg-custom-type] for details.
-}
+
+@history[#:added "1.8"]}
 
 @defmethod[(async-message-evt)
            evt?]{
@@ -333,9 +334,16 @@ any messages were handled by the event's synchronization, @racket[#f] otherwise.
 
 Note that the event is highly prone to ``false alarms'', when it becomes ready
 but produces @racket[#f].
-}
 
 @history[#:added "1.8"]}
+
+@defmethod[(cancel) void?]{
+
+Attempts to cancel any queries currently in progress on @(this-obj).
+
+@history[#:added "1.9"]}
+
+}
 
 
 @;{========================================}

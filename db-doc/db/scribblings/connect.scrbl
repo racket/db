@@ -142,11 +142,6 @@ Base connections are made using the following functions.
   If none of the attempted paths exist, an exception is raised.
 }
 
-@defproc[(postgresql-cancel [conn connection?]) void?]{
-
-  Attempts to cancel any in-progress queries issued by @racket[conn].
-}
-
 @defproc[(mysql-connect [#:user user string?]
                   [#:database database (or/c string? #f) #f]
                   [#:server server string? "localhost"]

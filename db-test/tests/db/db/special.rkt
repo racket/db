@@ -3,8 +3,7 @@
          rackunit
          "../config.rkt"
          db/base
-         db/util/postgresql
-         (only-in db/postgresql postgresql-cancel))
+         db/util/postgresql)
 (import database^ config^)
 (export test^)
 
@@ -53,7 +52,7 @@
 
       (test-case "postgresql-cancel: noop when there are no queries in progress"
         (with-connection c
-          (postgresql-cancel c)
+          (send c cancel)
           (check-equal? (query-value c "select 1") 1)))
 
       (test-case "postgresql-cancel: cancels queries in progress"
@@ -66,7 +65,7 @@
                (query-exec c "select pg_sleep(10)")
                (channel-put ch 'fail))))
           (sync (system-idle-evt))
-          (postgresql-cancel c)
+          (send c cancel)
           (define e (channel-get ch))
           (check-true (exn:fail:sql? e))
           (check-regexp-match #rx"canceling statement due to user request" (exn-message e)))))

@@ -8,8 +8,7 @@
          "connection.rkt")
 (provide postgresql-connect
          postgresql-guess-socket-path
-         postgresql-password-hash
-         postgresql-cancel)
+         postgresql-password-hash)
 
 (define (postgresql-connect #:user user
                             #:database database
@@ -87,6 +86,3 @@
 
 (define (postgresql-password-hash user password)
   (bytes->string/latin-1 (password-hash user password)))
-
-(define (postgresql-cancel conn)
-  (send conn cancel))
