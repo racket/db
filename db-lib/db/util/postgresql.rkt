@@ -10,6 +10,7 @@
                         #:send [send-convert values])
   (make-custom-type typeid name base-type recv-convert send-convert))
 
+(provide postgresql-connection<%>)
 (provide/contract
  [pg-custom-type?
   (-> any/c boolean?)]
