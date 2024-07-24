@@ -72,6 +72,9 @@ that is using a connection may leave the connection locked, causing
 future operations to block indefinitely. See also
 @secref["kill-safe"].
 
+@parheading{Multi-Statement Queries} This library does not support
+@secref["multi-stmt"].
+
 
 @section[#:tag "query-statements"]{Statements}
 

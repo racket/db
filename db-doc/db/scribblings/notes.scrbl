@@ -365,3 +365,52 @@ results for another command (SQLSTATE: HY000)''.
 @hyperlink["https://stackoverflow.com/questions/9017264/why-only-some-users-get-the-error-connection-is-busy"]{this page}). The ODBC Manager GUI does not expose the option, but it can be added @hyperlink["https://serverfault.com/questions/302169/odbc-sql-server-how-do-i-turn-on-multiple-active-result-sets"]{by editing the registry}.}
 
 ]
+
+@section[#:tag "multi-stmt"]{Multi-Statement Queries}
+
+This library does not directly support multi-statement queries. That is, each
+query operation must be given exactly one top-level SQL statement; otherwise the
+operation raises an exception.  For example, the following query operation is
+invalid:
+@racketblock[
+(query c "INSERT INTO t VALUES (1); INSERT INTO t VALUES (2);") (code:comment "invalid")
+]
+Multi-statement queries are not supported because they are not generally
+supported by the backend-specific wire protocols and APIs that this library is
+built on.
+
+Workarounds for a few database systems are available:
+@itemlist[
+
+@item{@bold{PostgreSQL:} Wrap the statements in a
+@hyperlink["https://www.postgresql.org/docs/current/sql-do.html"]{@tt{DO}}
+statement. Note that the body of a @tt{DO} statement must be given as a string
+literal; use PostgreSQL's
+@hyperlink["https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-DOLLAR-QUOTING"]{dollar-quoted
+string literals} to avoid the need to escape nested string literals. For
+example:
+@racketblock[
+(query c "DO $$BEGIN INSERT INTO t VALUES (1); INSERT INTO t VALUES (2); END$$")
+]}
+
+@item{@bold{MySQL, some other systems:} Wrap the statements in a new stored
+procedure using
+@hyperlink["https://dev.mysql.com/doc/refman/8.0/en/create-procedure.html"]{@tt{CREATE
+PROCEDURE}}, @tt{CALL} the procedure to execute the statments, and then
+@tt{DROP} the stored procedure. The procedure must cause at most one result set
+to be returned.
+
+@;{
+CREATE PROCEDURE tmpproc()
+BEGIN
+  INSERT INTO t VALUES (1);
+  INSERT INTO t VALUES (2);
+END
+
+CALL tmpproc
+}}
+
+@item{@bold{SQLite:} No known workarounds. In particular, SQLite does not
+support stored procedures.}
+
+]
