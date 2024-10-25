@@ -462,7 +462,9 @@ closed.
   statement holds its connection link weakly; a reference to a
   prepared statement will not keep a connection from being garbage
   collected.
-}
+
+@history[#:changed "1.10" @elem{Changed to accept @tech{virtual
+            statements} in addition to strings.}]}
 
 @defproc[(prepared-statement? [x any/c]) boolean?]{
 
