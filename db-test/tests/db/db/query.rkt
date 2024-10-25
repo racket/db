@@ -18,6 +18,8 @@
 ;;   'string = query w/ string
 ;;   'prepare = query w/ prepared
 ;;   'bind = query w/ prepared+bound
+;;   'gen = query w/ virtual-statement
+;;   'gen+prepare = query w/ virtual-statement+prepare
 (define-syntax-rule (Q* prep-mode function obj stmt arg ...)
   (Q** prep-mode function obj (sql stmt) (list arg ...)))
 (define (Q** prep-mode function obj stmt args)
@@ -26,6 +28,7 @@
     ((prepare) (apply function obj (prepare obj stmt) args))
     ((bind) (function obj (bind-prepared-statement (prepare obj stmt) args)))
     ((gen) (apply function obj (virtual-statement stmt) args))
+    ((gen+prepare) (apply function obj (prepare obj (virtual-statement stmt)) args))
     (else 'Q* "bad prep-mode: ~e" prep-mode)))
 
 ;; fixintconst : Integer/sql-null -> Any
@@ -142,7 +145,9 @@
               (for ([(x y) (in-query c (bind-prepared-statement (prepare c stmt) (list 2)))])
                 0))
              ((gen)
-              (for ([(x y) (in-query c (virtual-statement stmt) 2)]) 0)))))))
+              (for ([(x y) (in-query c (virtual-statement stmt) 2)]) 0))
+             ((gen+prepare)
+              (for ([(x y) (in-query c (prepare c (virtual-statement stmt)) 2)]) 0)))))))
     ))
 
 (define in-query-tests
@@ -710,6 +715,7 @@
     (simple-tests 'prepare)
     (simple-tests 'bind)
     (simple-tests 'gen)
+    (simple-tests 'gen+prepare)
     in-query-tests
     low-level-tests
     tx-tests
