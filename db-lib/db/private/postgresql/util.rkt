@@ -108,7 +108,7 @@
     #px"^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$")
   (and (string? x) (regexp-match? uuid-rx x)))
 
-(struct pg-custom-type (typeid typename basetype recv-convert send-convert))
+(struct pg-custom-type (typeid typename basetype recv-convert send-convert array-typeid))
 
 (define postgresql-connection<%>
   (interface ()

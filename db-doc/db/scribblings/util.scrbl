@@ -266,7 +266,8 @@ provided by the PostGIS extension library (see @secref["geometry"]).
                          [typename symbol?]
                          [basetype (or/c #f symbol? exact-nonnegative-integer?) #f]
                          [#:recv recv-convert (or/c #f (-> any/c any/c)) values]
-                         [#:send send-convert (or/c #f (-> any/c any/c)) values])
+                         [#:send send-convert (or/c #f (-> any/c any/c)) values]
+                         [#:array array-typeid (or/c #f exact-nonnegative-integer?) #f])
          pg-custom-type?]{
 
 Creates a custom type descriptor that can be used with PostgreSQL connections;
@@ -291,18 +292,27 @@ argument value is first converted using @racket[send-convert], and the converted
 value is sent according to @racket[basetype]. If @racket[send-convert] is
 @racket[#f], the type is not allowed as a parameter type.
 
+If @racket[array-typeid] is not false, it is the @tt{OID} of the type's
+corresponding array type. It can be found in the @tt{typarray} field of the
+type's row in @tt{pg_type}. If @racket[array-typeid] is false, then sending and
+receiving arrays of the given type is not supported.
+
 @examples[#:eval the-eval
-(define cidr-typeid
-  (query-value pgc "select oid from pg_type where typname = $1" "cidr"))
+(define-values (cidr-typeid cidr-array-typeid)
+  (vector->values
+    (query-row pgc "select oid, typarray from pg_type where typname = $1" "cidr")))
 cidr-typeid
 (send pgc add-custom-types
       (list (pg-custom-type cidr-typeid 'cidr
                             #:recv bytes->list
-                            #:send list->bytes)))
+                            #:send list->bytes
+                            #:array cidr-array-typeid)))
 (query-value pgc "select cidr '127.0.0.0/24'")
+(query-value pgc "select cast('{127.0.0.0/24, 10.0.0.0/8}' as cidr[])")
 ]
 
-@history[#:added "1.8"]}
+@history[#:added "1.8"
+         #:changed "1.11" @elem{Added @racket[array-typeid] argument.}]}
 
 @defproc[(pg-custom-type? [v any/c]) boolean?]{
 

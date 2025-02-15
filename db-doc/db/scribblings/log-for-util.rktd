@@ -29,19 +29,45 @@
  ((3) 0 () 0 () () (c values c (date* 0 0 0 1 1 1970 4 0 #f 0 0 "")))
  #""
  #"")
-((define cidr-typeid
-   (query-value pgc "select oid from pg_type where typname = $1" "cidr"))
+((define-values
+  (cidr-typeid cidr-array-typeid)
+  (vector->values
+   (query-row
+    pgc
+    "select oid, typarray from pg_type where typname = $1"
+    "cidr")))
  ((3) 0 () 0 () () (c values c (void)))
  #""
  #"")
 (cidr-typeid ((3) 0 () 0 () () (q values 650)) #"" #"")
 ((send pgc add-custom-types
    (list
-    (pg-custom-type cidr-typeid 'cidr #:recv bytes->list #:send list->bytes)))
+    (pg-custom-type
+     cidr-typeid
+     'cidr
+     #:recv
+     bytes->list
+     #:send
+     list->bytes
+     #:array
+     cidr-array-typeid)))
  ((3) 0 () 0 () () (c values c (void)))
  #""
  #"")
 ((query-value pgc "select cidr '127.0.0.0/24'")
  ((3) 0 () 0 () () (q values (2 24 1 4 127 0 0 0)))
+ #""
+ #"")
+((query-value pgc "select cast('{127.0.0.0/24, 10.0.0.0/8}' as cidr[])")
+ ((3)
+  1
+  (((lib "db/private/postgresql/util.rkt") . deserialize-info:pg-array-v0))
+  0
+  ()
+  ()
+  (c
+   values
+   c
+   (0 1 (q 2) (q 1) (v! (q 2 24 1 4 127 0 0 0) (q 2 8 1 4 10 0 0 0)))))
  #""
  #"")

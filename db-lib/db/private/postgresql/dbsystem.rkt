@@ -41,7 +41,7 @@
         (for/fold ([h typeid=>typeinfo])
                   ([ct (in-list custom-types)])
           (match ct
-            [(pg-custom-type typeid typename basetype recv-convert send-convert)
+            [(pg-custom-type typeid typename basetype recv-convert send-convert array-typeid)
              (match (type*->typeinfo basetype)
                [(typeinfo _ _ base-reader base-writer)
                 (define (custom-type-reader buf start end)
@@ -53,7 +53,17 @@
                             0 ;; meaningless for custom types
                             (and base-reader recv-convert custom-type-reader)
                             (and base-writer send-convert custom-type-writer)))
-                (hash-set h typeid info)]
+                (define h+type (hash-set h typeid info))
+                (cond [array-typeid
+                       (define array-reader (recv-array typeid custom-type-reader))
+                       (define array-writer (send-array typeid custom-type-writer))
+                       (define array-info
+                         (typeinfo (string->symbol (format "~a-array" typename))
+                                   0 ;; meaningless for custom types
+                                   (and base-reader recv-convert array-reader)
+                                   (and base-writer send-convert array-writer)))
+                       (hash-set h+type array-typeid array-info)]
+                      [else h+type])]
                [_ (error who "~a\n  custom type: ~e\n  base type: ~e"
                          "base type not found for custom type" typename basetype)])])))
       (new this% (integer-datetimes? idt?) (typeid=>typeinfo typeid=>typeinfo*)))
