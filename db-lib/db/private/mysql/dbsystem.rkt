@@ -9,11 +9,18 @@
          "../../util/private/geometry.rkt"
          (submod "../../util/mysql.rkt" private)
          (only-in "message.rkt" length-code->bytes field-dvec->typeid field-dvec->flags))
-(provide dbsystem
+(provide dbsystem:base
+         select-dbsystem
+         parse-server-version
+         version<=?
          classify-my-sql)
 
 (define mysql-dbsystem%
   (class* dbsystem-base% (dbsystem<%>)
+    (init-field flags)
+
+    (define (check-param* who param)
+      (check-param who param flags))
 
     (define/public (get-short-name) 'mysql)
     (define/override (get-type-list) type-list)
@@ -25,12 +32,10 @@
         (else #f)))
 
     (define/public (get-parameter-handlers param-typeids)
-      ;; All params sent as binary data, so handled in message.rkt
-      ;; Just need to check params for legal values here
-      ;; FIXME: for now, only possible param type is var-string;
-      ;; when that changes, will need to refine check-param.
-      (map (lambda (param-typid) check-param)
-           param-typeids))
+      ;; All params sent as binary data, so handled in message.rkt.
+      ;; MySQL now (since ??) sometimes sets useful param typeid, but ignore
+      ;; because it might not be reliable and for backwards compatibility.
+      (map (lambda (param-typid) check-param*) param-typeids))
 
     (define/public (field-dvecs->typeids dvecs)
       (map field-dvec->typeid dvecs))
@@ -58,9 +63,31 @@
 
     (super-new)))
 
-(define dbsystem
-  (new mysql-dbsystem%))
+(define dbsystem:base (new mysql-dbsystem% (flags '())))
+(define dbsystem:5 (new mysql-dbsystem% (flags '(send-geom))))
+(define dbsystem:5.7 (new mysql-dbsystem% (flags '(send-geom json))))
+(define dbsystem:8 (new mysql-dbsystem% (flags '(json))))
+(define dbsystem:9 (new mysql-dbsystem% (flags '(json vector))))
 
+(define (select-dbsystem v)
+  (cond [(version<=? '(9) v) dbsystem:9]
+        [(version<=? '(8) v) dbsystem:8]
+        [(version<=? '(5 7) v) dbsystem:5.7]
+        [else dbsystem:5]))
+
+(define (parse-server-version sver)
+  (cond [(regexp-match #rx"^([0-9]+)[.]([0-9]+)[.]([0-9]+)" sver)
+         => (lambda (m) (map string->number (list (cadr m) (caddr m) (cadddr m))))]
+        [(regexp-match #rx"^([0-9]+)[.]([0-9]+)" sver)
+         => (lambda (m) (map string->number (list (cadr m) (caddr m))))]
+        [else (list 0)]))
+
+(define (version<=? v1 v2)
+  (cond [(null? v1) #t]
+        [(null? v2) #f]
+        [(< (car v1) (car v2)) #t]
+        [(= (car v1) (car v2)) (version<=? (cdr v1) (cdr v2))]
+        [else #f]))
 
 ;; ========================================
 
@@ -75,9 +102,9 @@
 ;; - v2, after by connection sends long data: Payloads already sent as
 ;;   long-data are replaced by #f.
 
-;; check-param : Symbol Any -> CheckParam-v1
+;; check-param : Symbol Any (Listof Symbol) -> CheckParam-v1
 ;; Note: not applied to sql-null parameters.
-(define (check-param fsym param)
+(define (check-param fsym param flags)
   (cond [(string? param)
          (cons 'var-string (string->bytes/utf-8 param))]
         [(bytes? param)
@@ -93,9 +120,11 @@
            (cons 'bit (bytes-append (length-code->bytes (- (bytes-length bs) start)) bs)))]
         [(geometry2d? param)
          ;; Since MySQL 8.0 (?), sending parameters as the 'geometry type does not work.
-         ;; So send WKB as blob instead.
-         (cons 'blob ;; 'geometry
-               (geometry->bytes 'mysql-geometry->bytes param #:big-endian? #f #:srid? #f))]
+         ;; So send WKB as 'blob instead.
+         (define who 'mysql-geometry->bytes)
+         (if (memq 'send-geom flags)
+             (cons 'geometry (geometry->bytes who param #:big-endian? #f #:srid? #t))
+             (cons 'blob (geometry->bytes who param #:big-endian? #f #:srid? #f)))]
         [(sql-date? param)
          (unless (<= DATE-YEAR-MIN (sql-date-year param) DATE-YEAR-MAX)
            (error/no-convert fsym "MySQL" "DATE" param "year out of range"))
@@ -107,10 +136,12 @@
          ;; See comment above for sql-date
          (cons 'timestamp param)]
         [(mysql-json? param)
+         (unless (memq 'json flags)
+           (error/no-convert fsym "MySQL" "JSON" param "server version too old"))
          (cons 'json (mysql-json-bytes param))]
-        ;; [(and (hash? param) (jsexpr? param))
-        ;;  (cons 'json (jsexpr->bytes param))]
         [(flvector? param)
+         (unless (memq 'vector flags)
+           (error/no-convert fsym "MySQL" "VECTOR" param "server version too old"))
          (when (zero? (flvector-length param))
            (error/no-convert fsym "MySQL" "VECTOR" param "must be non-empty"))
          (define bs (make-bytes (* 4 (flvector-length param))))

@@ -26,6 +26,7 @@
                   custodian-b)
     (define inport #f)
     (define outport #f)
+    (define dbsystem dbsystem:base) ;; updated in connect
 
     (inherit call-with-lock
              call-with-lock*
@@ -213,12 +214,14 @@
                (error* 'mysql-connect "back end requested unsupported authentication plugin"
                        '("plugin" value) auth))
              (define wanted-capabilities (desired-capabilities capabilities do-ssl? dbname))
+             (define sver-list (parse-server-version sver))
              (define-values (client-charset set-names?)
                (cond [(memq charset '(utf8mb4_0900_ai_ci utf8mb4_general_ci))
                       (values charset #f)]
-                     [(regexp-match? #rx"^(?:4|5[.][0-4]|5[.]5[.][0-2])" sver) ;; < 5.5.3
+                     [(version<=? sver-list '(5 5 2)) ;; < 5.5.3
                       (values 'utf8_general_ci #f)]
                      [else (values 'utf8mb4_general_ci #f)]))
+             (set! dbsystem (select-dbsystem sver-list))
              (when do-ssl? (connect:ssl wanted-capabilities))
              (auth-loop (or auth "mysql_native_password") scramble
                         (lambda (auth-plugin data)
