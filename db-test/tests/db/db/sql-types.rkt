@@ -82,7 +82,7 @@
     [(date) "select cast(? as date)"]
     [(time) "select cast(? as time)"]
     [(datetime) "select cast(? as datetime)"]
-    [(geometry) "select ?"]
+    [(geometry) "select ST_GeomFromWKB(?)"]
     [(json) "select cast(? as json)"]
     ;; FIXME: more types
     [else #f]))
@@ -543,23 +543,26 @@
                        (string-append (make-string 10 #\1) (make-string 20 #\0)))])
           (check-roundtrip* (string->sql-bits s) check-bits-equal?))))
 
+    ;; Geometry and MySQL 8.0 and later: geometry types sent as blobs (WKB), but
+    ;; requires explicit ST_GeomFromWKB conversion; cannot insert directly into
+    ;; field. So don't try table-based round-tripping.
     (type-test-case '(point geometry)
-      (setup-temp-table)
+      (when (FLAG 'postgresql) (setup-temp-table))
       (check-roundtrip (point 0 0))
       (check-roundtrip (point 1 2))
       (check-roundtrip (point (exp 1) pi)))
 
     (type-test-case '(line-string geometry)
-      (setup-temp-table)
+      (when (FLAG 'postgresql) (setup-temp-table))
       (check-roundtrip (line-string (list (point 0 0) (point 1 1))))
       (check-roundtrip (line-string (list (point 0 0) (point 1 1) (point -5 7)))))
 
     (type-test-case '(lseg geometry)
-      (setup-temp-table)
+      (when (FLAG 'postgresql) (setup-temp-table))
       (check-roundtrip (line-string (list (point 0 0) (point 1 1)))))
 
     (type-test-case '(polygon geometry)
-      (setup-temp-table)
+      (when (FLAG 'postgresql) (setup-temp-table))
       (check-roundtrip
        (polygon (line-string (list (point 0 0) (point 2 0) (point 1 1) (point 0 0))) '()))
       (when (FLAG 'mysql)

@@ -91,8 +91,10 @@
          (let-values ([(len bs start) (align-sql-bits param 'right)])
            (cons 'bit (bytes-append (length-code->bytes (- (bytes-length bs) start)) bs)))]
         [(geometry2d? param)
-         (cons 'geometry
-               (geometry->bytes 'mysql-geometry->bytes param #:big-endian? #f #:srid? #t))]
+         ;; Since MySQL 8.0 (?), sending parameters as the 'geometry type does not work.
+         ;; So send WKB as blob instead.
+         (cons 'blob ;; 'geometry
+               (geometry->bytes 'mysql-geometry->bytes param #:big-endian? #f #:srid? #f))]
         [(sql-date? param)
          (unless (<= DATE-YEAR-MIN (sql-date-year param) DATE-YEAR-MAX)
            (error/no-convert fsym "MySQL" "DATE" param "year out of range"))
