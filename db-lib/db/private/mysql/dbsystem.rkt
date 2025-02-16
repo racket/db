@@ -1,6 +1,7 @@
 #lang racket/base
 (require racket/class
          racket/match
+         racket/flonum
          json
          db/private/generic/interfaces
          db/private/generic/common
@@ -109,6 +110,13 @@
          (cons 'json (mysql-json-bytes param))]
         ;; [(and (hash? param) (jsexpr? param))
         ;;  (cons 'json (jsexpr->bytes param))]
+        [(flvector? param)
+         (when (zero? (flvector-length param))
+           (error/no-convert fsym "MySQL" "VECTOR" param "must be non-empty"))
+         (define bs (make-bytes (* 4 (flvector-length param))))
+         (for ([x (in-flvector param)] [i (in-naturals)])
+           (real->floating-point-bytes x 4 #f bs (* 4 i)))
+         (cons 'vector bs)]
         [else
          (error/no-convert fsym "MySQL" "parameter" param)]))
 
@@ -182,7 +190,8 @@
   (blob        blob        0)
   (bit         bit         0)
   (geometry    geometry    0)
-  (json        json        5.7))
+  (json        json        5.7)
+  (vector      vector      9.0))
 
 (define type-list
   (append (map (lambda (t) (list t 0))

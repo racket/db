@@ -5,6 +5,7 @@
          racket/math
          racket/match
          racket/string
+         racket/flonum
          (prefix-in srfi: srfi/19)
          db/base
          db/util/datetime
@@ -84,6 +85,7 @@
     [(datetime) "select cast(? as datetime)"]
     [(geometry) "select ST_GeomFromWKB(?)"]
     [(json) "select cast(? as json)"]
+    [(vector) "select string_to_vector(vector_to_string(?))"]
     ;; FIXME: more types
     [else #f]))
 
@@ -837,4 +839,11 @@
       (check-=any "'0.05'::numeric" (list d1) #f)
       (check-=any "'0.05'::numeric" (list d1 sql-null d2 d3 d4) #t))
 
+    (when (ANDFLAGS 'mysql 'my:vector)
+      (type-test-case '(vector)
+        (setup-temp-table)
+        (define some-vectors
+          (list (flvector 1.5) (flvector 1.0 2.0 3.0)))
+        (for ([v (in-list some-vectors)])
+          (check-roundtrip v))))
     ))

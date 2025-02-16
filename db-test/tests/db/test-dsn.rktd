@@ -16,10 +16,10 @@
  ;; "warm up" the sha2 cache, but then it runs the rest of the tests w/o SSL.
  (my (db mysql
          (#:port 3306 #:database "rkt" #:user "rkt" #:password "rktpwd")
-         ((db:test (ismy my:json connect-first-ssl)))))
+         ((db:test (ismy my:json my:vector connect-first-ssl)))))
  (myssl (db mysql
             (#:port 3306 #:database "rkt" #:user "rkt" #:password "rktpwd" #:ssl yes)
-            ((db:test (ismy my:json ssl)))))
+            ((db:test (ismy my:json my:vector ssl)))))
 
  ;; ----------------------------------------
  ;; ODBC

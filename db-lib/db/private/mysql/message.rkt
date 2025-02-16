@@ -6,6 +6,7 @@ Based on protocol documentation here:
 #lang racket/base
 (require racket/match
          racket/port
+         racket/flonum
          db/private/generic/sql-data
          db/private/generic/interfaces
          json
@@ -770,6 +771,13 @@ computed string on the server can be. See also:
      (let* ([json (io:read-length-coded-bytes in)])
        (bytes->jsexpr json)))
 
+    ((vector)
+     (define bs (io:read-length-coded-bytes in))
+     ;; assert length of bs is multiple of 4
+     (for/flvector #:length (quotient (bytes-length bs) 4)
+                   ([i (in-range 0 (bytes-length bs) 4)])
+       (floating-point-bytes->real bs #f i (+ i 4))))
+
     ((decimal)
      (error/internal* 'get-result "unimplemented decimal type" "type" type))
     ((enum set)
@@ -802,7 +810,7 @@ computed string on the server can be. See also:
     ((tiny short int24 long longlong float double) #t)
     ((varchar string var-string blob tiny-blob medium-blob long-blob) #t)
     ((date datetime timestamp newdate time year) #t)
-    ((newdecimal bit geometry json) #t)
+    ((newdecimal bit geometry json vector) #t)
     ((null) #t)
     (else #f)))
 
@@ -812,7 +820,7 @@ computed string on the server can be. See also:
      1 ;; for space in null bitmap
      (case type
        [(null) 0]
-       [(var-string blob json geometry bit)
+       [(var-string blob json vector geometry bit)
         (length-coded-length (bytes-length param))]
        [(longlong double)
         8]
@@ -829,7 +837,7 @@ computed string on the server can be. See also:
     ;; Null: send nothing
     [(null) (void)]
     ;; Variable-length
-    [(var-string blob geometry bit json)
+    [(var-string blob geometry bit json vector)
      ;; param is bytes or #f, where #f means sent as long data (don't send now)
      (when param (io:write-length-coded-bytes out param))]
     ;; Fixed-size cases
@@ -988,6 +996,7 @@ computed string on the server can be. See also:
     (#x0E . newdate)
     (#x0F . varchar)
     (#x10 . bit)
+    (#xF2 . vector)
     (#xF5 . json)
     (#xF6 . newdecimal)
     (#xF7 . enum)
