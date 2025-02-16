@@ -6,7 +6,7 @@
           racket/runtime-path
           "config.rkt"
           (for-label db db/util/datetime db/util/geometry db/util/postgresql
-                     db/util/testing db/util/cassandra
+                     db/util/testing db/util/cassandra db/util/mysql
                      db/unsafe/sqlite3))
 
 @(define-runtime-path log-file "log-for-util.rktd")
@@ -145,7 +145,7 @@ structures to and from WKB format is supported by the
 
 @;{========================================}
 
-@section[#:tag "postgresql-ext"]{PostgreSQL-specific Types}
+@section[#:tag "postgresql-ext"]{PostgreSQL-specific Functionality}
 
 @defmodule[db/util/postgresql]
 
@@ -355,6 +355,27 @@ Attempts to cancel any queries currently in progress on @(this-obj).
 
 }
 
+
+@;{========================================}
+
+@section[#:tag "mysql-ext"]{MySQL-specific Functionality}
+
+@defmodule[db/util/mysql]
+
+@history[#:added "1.11"]
+
+@defproc[(mysql-json? [v any/c]) boolean?]{
+
+Returns @racket[#t] if @racket[v] is a value produced by @racket[mysql-json],
+@racket[#f] otherwise.
+}
+
+@defproc[(mysql-json [v jsexpr?]) mysql-json?]{
+
+Converts @racket[v] to a JSON string and returns an opaque wrapper value. If the
+wrapper value is passed as a query parameter using a MySQL connection, the
+parameter is marked as a @tt{JSON} value. (See @secref["mysql-types"].)
+}
 
 @;{========================================}
 

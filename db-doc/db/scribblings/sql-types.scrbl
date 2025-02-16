@@ -6,8 +6,8 @@
           racket/runtime-path
           "config.rkt"
           "tabbing.rkt"
-          (for-label db db/util/geometry db/util/postgresql racket/set
-                     json))
+          (for-label racket/base db db/util/geometry db/util/postgresql db/util/mysql
+                     racket/flonum data/bit-vector json))
 
 @(define-runtime-path log-file "log-for-sql-types.rktd")
 @(define the-eval (make-pg-eval log-file #t))
@@ -204,33 +204,78 @@ with their corresponding Racket representations.
   @racket['blob]               @& @racket[bytes?] @//
 
   @racket['bit]                @& @racket[bit-vector?] @//
-  @racket['geometry]           @& @racket[geometry2d?]
+  @racket['geometry]           @& @racket[geometry2d?] @//
+  @racket['json]               @& @racket[jsexpr?] (@racket[mysql-json?] for parameters) @//
+  @racket['vector]             @& @racket[flvector?]
 }
 }
 
-MySQL does not report specific parameter types for prepared queries,
-so they are instead assigned the pseudo-type @racket['any]. Conversion
-of Racket values to parameters accepts strings, numbers
-(@racket[rational?]---no infinities or NaN), bytes, SQL date/time
-structures (@racket[sql-date?], @racket[sql-time?],
-@racket[sql-timestamp?], and @racket[sql-day-time-interval?]), bits
-(@racket[bit-vector?]), and geometric values
-(@racket[geometry2d?]). Numbers are sent as 64-bit signed integers, if
-possible, or as double-precision floating point numbers otherwise.
+MySQL provides type information for query results, but it does not
+provide types for query parameters; rather, the client is expected to
+tell the server the type of each parameter it sends. Consequently,
+@racket[prepared-statement-parameter-types] reports the pseudo-type
+@racket['any] for every parameter of a MySQL prepared statement, and
+the type sent to the server is inferred from the parameter value as
+follows: 
+@itemlist[
+
+@item{@racket[string?] --- sent as @tt{VARSTRING}}
+
+@item{@racket[exact-integer?] --- sent as @tt{BIGINT} if it fits
+within a signed 64-bit integer or as @tt{DOUBLE} otherwise. The
+conversion to @tt{DOUBLE} may lose precision.}
+
+@item{@racket[real?] --- sent as @tt{DOUBLE}. Infinities and NaN are
+not allowed. The conversion may lose precision.}
+
+@item{@racket[bytes?] --- sent as @tt{BLOB}}
+
+@item{@racket[sql-date?] --- sent as @tt{DATE}}
+
+@item{@racket[sql-time?] or @racket[sql-day-time-interval?] --- sent as @tt{TIME}}
+
+@item{@racket[sql-timestamp?] --- sent as @tt{TIMESTAMP}}
+
+@item{@racket[bit-vector?] --- sent as @tt{BITS}}
+
+@item{@racket[geometry2d?] --- server version 8.0 and later: the ``well-known
+binary'' encoding is sent as @tt{BLOB}; version 5.7.x and earlier: sent as
+@tt{GEOMETRY}}
+
+@item{@racket[mysql-json?] --- sent as @tt{JSON}}
+
+]
 
 Fields of type @tt{CHAR} or @tt{VARCHAR} are typically reported as
 @racket['var-string], and fields of type @tt{BINARY} or @tt{VARBINARY}
 are typically reported as @racket['var-binary].
 
-The MySQL @tt{time} type represents time intervals, which may not
+The MySQL @tt{TIME} type represents time intervals, which may not
 correspond to times of day (for example, the interval may be negative
 or larger than 24 hours). In conversion from MySQL results to Racket
-values, those @tt{time} values that represent times of day are
+values, those @tt{TIME} values that represent times of day are
 converted to @racket[sql-time] values; the rest are represented by
-@racket[sql-interval] values.
+@racket[sql-interval] values. (See also
+@racket[sql-time->sql-interval] and @racket[sql-interval->sql-time].)
+
+The @tt{JSON} type (introduced in MySQL 5.7) is represented by @racket[jsexpr?]
+values, but that representation overlaps with the representation of MySQL
+character types (eg, @tt{VARCHAR}), and the values are interpreted in
+incompatible ways. Query parameters are only sent as @tt{JSON} if they are
+wrapped with @racket[mysql-json]; @tt{JSON} result values are returned as
+unwrapped @racket[jsexpr?]  values.
+
+The @tt{VECTOR} type (introduced in MySQL 9.0) is represented by non-empty
+@tech/reference{flvectors} (@racket[flvector?]). Beware that flvectors store
+double-precision floating-point numbers, but MySQL @tt{VECTOR} fields are
+single-precision.
 
 The MySQL @tt{enum} and @tt{set} types are not supported. As a
 workaround, cast them to/from either integers or strings.
+
+@history[#:changed "1.11" @elem{Added support for @tt{JSON}, @tt{VECTOR}.
+Changed format of @tt{GEOMETRY} query parameters for servers running MySQL 8.0
+ and later.}]
 
 
 @subsection[#:tag "cassandra-types"]{Cassandra Types}
