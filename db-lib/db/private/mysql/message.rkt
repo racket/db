@@ -8,6 +8,7 @@ Based on protocol documentation here:
          racket/port
          db/private/generic/sql-data
          db/private/generic/interfaces
+         json
          "../../util/private/geometry.rkt")
 (provide write-packet
          parse-packet
@@ -765,6 +766,10 @@ computed string on the server can be. See also:
                       (io:read-length-coded-bytes in)
                       #:srid? #t))
 
+    ((json)
+     (let* ([json (io:read-length-coded-bytes in)])
+       (bytes->jsexpr json)))
+
     ((decimal)
      (error/internal* 'get-result "unimplemented decimal type" "type" type))
     ((enum set)
@@ -797,7 +802,7 @@ computed string on the server can be. See also:
     ((tiny short int24 long longlong float double) #t)
     ((varchar string var-string blob tiny-blob medium-blob long-blob) #t)
     ((date datetime timestamp newdate time year) #t)
-    ((newdecimal bit geometry) #t)
+    ((newdecimal bit geometry json) #t)
     ((null) #t)
     (else #f)))
 
@@ -824,7 +829,7 @@ computed string on the server can be. See also:
     ;; Null: send nothing
     [(null) (void)]
     ;; Variable-length
-    [(var-string blob geometry bit)
+    [(var-string blob geometry bit json)
      ;; param is bytes or #f, where #f means sent as long data (don't send now)
      (when param (io:write-length-coded-bytes out param))]
     ;; Fixed-size cases
@@ -983,6 +988,7 @@ computed string on the server can be. See also:
     (#x0E . newdate)
     (#x0F . varchar)
     (#x10 . bit)
+    (#xF5 . json)
     (#xF6 . newdecimal)
     (#xF7 . enum)
     (#xF8 . set)

@@ -10,6 +10,7 @@
          db/util/datetime
          db/util/geometry
          db/util/postgresql
+         db/util/mysql
          "../config.rkt")
 (import config^ database^)
 (export test^)
@@ -42,15 +43,18 @@
 (define-check (check-roundtrip value)
   (check-roundtrip* value check-equal?))
 
-(define (check-roundtrip* value check-equal?)
+(define-check (check-roundtrip/wrap value wrap-param)
+  (check-roundtrip* value check-equal? wrap-param))
+
+(define (check-roundtrip* value check-equal? [wrap-param values])
   (cond [(roundtrip-statement)
          => (lambda (rt-stmt)
-              (check-equal? (query-value (dbc) rt-stmt value) value))]
+              (check-equal? (query-value (dbc) rt-stmt (wrap-param value)) value))]
         [else
          (error 'check-roundtrip "don't know how to check-roundtrip type: ~e"
                 (current-type))])
   (when (temp-table-avail?)
-    (check-table-rt* value check-equal?)))
+    (check-table-rt* value check-equal? wrap-param)))
 
 (define (roundtrip-statement)
   (cond [(FLAG 'ispg)
@@ -78,7 +82,8 @@
     [(date) "select cast(? as date)"]
     [(time) "select cast(? as time)"]
     [(datetime) "select cast(? as datetime)"]
-    [(json geometry) "select ?"]
+    [(geometry) "select ?"]
+    [(json) "select cast(? as json)"]
     ;; FIXME: more types
     [else #f]))
 
@@ -153,9 +158,9 @@
     (temp-table-avail? #t))
   (temp-table-avail?))
 
-(define (check-table-rt* value check-equal?) ;; called from check-roundtrip*
+(define (check-table-rt* value check-equal? [wrap-param values]) ;; called from check-roundtrip*
   (query-exec (dbc) "delete from testing_temp_table")
-  (query-exec (dbc) (sql "insert into testing_temp_table (v) values ($1)") value)
+  (query-exec (dbc) (sql "insert into testing_temp_table (v) values ($1)") (wrap-param value))
   (check-equal? (query-value (dbc) "select v from testing_temp_table") value))
 
 ;; ----------------------------------------
@@ -578,15 +583,24 @@
         (setup-temp-table)
         (check-roundtrip "84cd6cee-edd0-4701-9618-d0ef84cee55d")))
 
-    (when (ANDFLAGS 'postgresql 'pg92)
+    (when (or (ANDFLAGS 'postgresql 'pg92)
+              (ANDFLAGS 'mysql 'my:json))
       (type-test-case '(json)
         (setup-temp-table)
-        (define some-jsexprs
-          (list #t #f 0 1 -2 pi "" "hello" "good\nbye" 'null
-                (hasheq 'a 1 'b 2 'c 'null)
-                (list #t #f 'null "a" "b")))
-        (for ([j some-jsexprs])
-          (check-roundtrip j)))
+        (define wrap-param (if (ANDFLAGS 'mysql 'my:json) mysql-json values))
+        (define some-atomic-jsexprs
+          (list #t #f 0 1 -2 pi "" "hello" "good\nbye" 'null))
+        (define some-compound-jsexprs
+          (list (hasheq)
+                (list)
+                (hasheq 'a 1 'b 2 'c 'null 'd "apple")
+                (list #t #f 'null "a" "b" (hasheq 'a 1))))
+        (for ([j some-atomic-jsexprs])
+          (check-roundtrip/wrap j wrap-param))
+        (for ([j some-compound-jsexprs])
+          (check-roundtrip/wrap j wrap-param))))
+
+    (when (ANDFLAGS 'postgresql 'pg92)
       (type-test-case '(int4range)
         (setup-temp-table)
         (check-roundtrip (pg-empty-range))

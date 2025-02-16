@@ -1,10 +1,12 @@
 #lang racket/base
 (require racket/class
          racket/match
+         json
          db/private/generic/interfaces
          db/private/generic/common
          db/private/generic/sql-data
          "../../util/private/geometry.rkt"
+         (submod "../../util/mysql.rkt" private)
          (only-in "message.rkt" length-code->bytes field-dvec->typeid field-dvec->flags))
 (provide dbsystem
          classify-my-sql)
@@ -101,6 +103,10 @@
            (error/no-convert fsym "MySQL" "DATETIME" param "year out of range"))
          ;; See comment above for sql-date
          (cons 'timestamp param)]
+        [(mysql-json? param)
+         (cons 'json (mysql-json-bytes param))]
+        ;; [(and (hash? param) (jsexpr? param))
+        ;;  (cons 'json (jsexpr->bytes param))]
         [else
          (error/no-convert fsym "MySQL" "parameter" param)]))
 
@@ -173,7 +179,8 @@
   (long-blob   longblob    0)
   (blob        blob        0)
   (bit         bit         0)
-  (geometry    geometry    0))
+  (geometry    geometry    0)
+  (json        json        5.7))
 
 (define type-list
   (append (map (lambda (t) (list t 0))
