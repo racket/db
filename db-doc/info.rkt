@@ -11,6 +11,7 @@
                      "sandbox-lib"
                      "web-server-lib"
                      "db-lib"
+                     "data-doc"
                      "racket-doc"))
 (define update-implies '("db-lib"))
 
