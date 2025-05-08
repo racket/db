@@ -510,34 +510,24 @@
 ;; ========================================
 
 (define (write-message msg port)
-  (define-syntax (gen-cond stx)
-    (syntax-case stx ()
-      [(gen-cond type ...)
-       (with-syntax ([((pred write) ...)
-                      (for/list ([type (in-list (syntax->list #'(type ...)))])
-                        (list (datum->syntax type
-                                (string->symbol (format "~a?" (syntax-e type))))
-                              (datum->syntax type
-                                (string->symbol (format "write:~a" (syntax-e type))))))])
-         #'(cond [(pred msg) (write port msg)] ...
-                 [else
-                  (error/internal* 'write-message "unknown message type"
-                                   '("message" value) msg)]))]))
-  (gen-cond Sync
-            Parse
-            Describe
-            Bind
-            Execute
-            Flush
-            Query
-            Close
-            Terminate
-            StartupMessage
-            PasswordMessage
-            SSLRequest
-            CancelRequest
-            SASLInitialResponse
-            SASLResponse))
+  (cond
+    [(Sync? msg) (write:Sync port msg)]
+    [(Parse? msg) (write:Parse port msg)]
+    [(Describe? msg) (write:Describe port msg)]
+    [(Bind? msg) (write:Bind port msg)]
+    [(Execute? msg) (write:Execute port msg)]
+    [(Flush? msg) (write:Flush port msg)]
+    [(Query? msg) (write:Query port msg)]
+    [(Close? msg) (write:Close port msg)]
+    [(Terminate? msg) (write:Terminate port msg)]
+    [(StartupMessage? msg) (write:StartupMessage port msg)]
+    [(PasswordMessage? msg) (write:PasswordMessage port msg)]
+    [(SSLRequest? msg) (write:SSLRequest port msg)]
+    [(CancelRequest? msg) (write:CancelRequest port msg)]
+    [(SASLInitialResponse? msg) (write:SASLInitialResponse port msg)]
+    [(SASLResponse? msg) (write:SASLResponse port msg)]
+    [else (error/internal* 'write-message "unknown message type"
+                           '("message" value) msg)]))
 
 (define (parse-server-message p)
   (let ([c (read-char p)])
