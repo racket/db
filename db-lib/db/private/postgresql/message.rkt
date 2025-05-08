@@ -35,6 +35,7 @@
          (struct-out EmptyQueryResponse)
          (struct-out Execute)
          (struct-out Flush)
+         (struct-out NegotiateProtocolVersion)
          (struct-out NoData)
          (struct-out NotificationResponse)
          (struct-out ParameterDescription)
@@ -159,6 +160,12 @@
 ;; ========================================
 ;; The strange structures
 
+(define PROTO_3_0 #x00030000)
+(define PROTO_3_2 #x00030002)
+
+(define PROTO_CANCEL 80877102) ;; 1234<<16 + 5678
+(define PROTO_SSL    80877103) ;; 1234<<16 + 5679
+
 (define-struct AuthenticationOk () #:transparent)
 (define-struct AuthenticationKerberosV5 () #:transparent)
 (define-struct AuthenticationCleartextPassword () #:transparent)
@@ -196,7 +203,7 @@
 (define-struct StartupMessage (parameters) #:transparent)
 (define (write:StartupMessage p v)
   (with-length-out p #f
-    (io:write-int32 p 196608)
+    (io:write-int32 p PROTO_3_0)
     (for-each (lambda (param)
                 (io:write-null-terminated-string p (car param))
                 (io:write-null-terminated-string p (cdr param)))
@@ -206,14 +213,14 @@
 (define-struct SSLRequest () #:transparent)
 (define (write:SSLRequest p v)
   (io:write-int32 p 8)
-  (io:write-int32 p 80877103))
+  (io:write-int32 p PROTO_SSL))
 
 (define-struct CancelRequest (process-id secret-key) #:transparent)
 (define (write:CancelRequest p v)
   (io:write-int32 p 16)
-  (io:write-int32 p 80877102)
+  (io:write-int32 p PROTO_CANCEL)
   (io:write-int32 p (CancelRequest-process-id v))
-  (io:write-int32 p (CancelRequest-secret-key v)))
+  (write-bytes (CancelRequest-secret-key v) p))
 
 (define-struct ErrorResponse (properties) #:transparent)
 (define (parse:ErrorResponse p)
@@ -245,7 +252,9 @@
 (define (parse:BackendKeyData p)
   (with-length-in p #\K
     (let* ([process-id (io:read-int32 p)]
-           [secret-key (io:read-int32 p)])
+           ;; Before protocol v3.2 (PostgreSQL 18), secret-key is int32;
+           ;; after, var-length up to 256 bytes. So just read to EOM, keep as bytes.
+           [secret-key (read-bytes 256 p)])
       (make-BackendKeyData process-id secret-key))))
 
 (define-struct Bind (portal statement param-formats values result-formats) #:transparent)
@@ -359,6 +368,19 @@
 (define-struct Flush () #:transparent)
 (define (write:Flush p v)
   (with-length-out p #\H))
+
+;; Added in PostgreSQL 9.3
+(define-struct NegotiateProtocolVersion (major minor unrecognized-options) #:transparent)
+(define (parse:NegotiateProtocolVersion p)
+  (with-length-in p #\v
+    (define last-version (io:read-int32 p))
+    (define n-options (io:read-int32 p))
+    (define unrecognized-options
+      (for/list ([i (in-range n-options)])
+        (io:read-null-terminated-string p)))
+    (NegotiateProtocolVersion (bitwise-bit-field last-version 16 32)
+                              (bitwise-bit-field last-version 0 16)
+                              unrecognized-options)))
 
 (define-struct NoData () #:transparent)
 (define (parse:NoData p)
@@ -531,6 +553,7 @@
       ((#\H) (parse:CopyOutResponse p))
       ((#\D) (parse:DataRow p))
       ((#\I) (parse:EmptyQueryResponse p))
+      ((#\v) (parse:NegotiateProtocolVersion p))
       ((#\n) (parse:NoData p))
       ((#\A) (parse:NotificationResponse p))
       ((#\t) (parse:ParameterDescription p))

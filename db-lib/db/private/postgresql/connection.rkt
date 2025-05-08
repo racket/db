@@ -323,6 +323,10 @@
                  [else
                   (error/no-support 'postgresql-connect
                                     (format "SASL authentication ~a" methods))])]
+          [(NegotiateProtocolVersion major minor unsupported-options)
+           (unless (and (= 3 major) (null? unsupported-options))
+             (error/comm 'postgresql-connect "during authentication"))
+           (connect:expect-auth username password local?)]
           ;; ErrorResponse handled by recv-message
           [_ (error/comm 'postgresql-connect "during authentication")])))
 
