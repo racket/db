@@ -604,11 +604,15 @@
     (define/private (prepare1:describe-params fsym)
       (match (recv-message fsym)
         [(struct ParameterDescription (param-typeids)) param-typeids]
+        ['too-many-parameters
+         (error fsym "query has more parameters than the protocol allows")]
         [other-r (prepare1:error fsym other-r)]))
 
     (define/private (prepare1:describe-result fsym)
       (match (recv-message fsym)
         [(struct RowDescription (field-dvecs)) field-dvecs]
+        ['too-many-fields
+         (error fsym "query has more result fields than the protocol allows")]
         [(struct NoData ()) null]
         [other-r (prepare1:error fsym other-r)]))
 

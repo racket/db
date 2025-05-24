@@ -76,6 +76,11 @@
 (define (io:write-int16 port val)
   (write-bytes (integer->integer-bytes val 2 #t #t) port))
 
+;; write-uint16 : port integer -> (void)
+;; Writes an unsigned 16-bit integer, network byte order
+(define (io:write-uint16 port val)
+  (write-bytes (integer->integer-bytes val 2 #f #t) port))
+
 ;; write-int32 : port integer -> void
 ;; Writes a 32-bit integer, network byte order
 (define (io:write-int32 port val)
@@ -250,10 +255,10 @@
      (with-length-out p #\B
        (io:write-null-terminated-string p portal)
        (io:write-null-terminated-string p statement)
-       (io:write-int16 p (length param-formats))
+       (io:write-uint16 p (length param-formats))
        (for ([param-format (in-list param-formats)])
          (io:write-int16 p param-format))
-       (io:write-int16 p (length values))
+       (io:write-uint16 p (length values))
        (for ([value (in-list values)])
          (cond [(bytes? value)
                 (io:write-int32 p (bytes-length value))
@@ -264,7 +269,7 @@
                   (io:write-bytes p value))]
                [(sql-null? value)
                 (io:write-int32 p -1)]))
-       (io:write-int16 p (length result-formats))
+       (io:write-uint16 p (length result-formats))
        (for ([result-format (in-list result-formats)])
          (io:write-int16 p result-format)))]))
 
@@ -371,10 +376,16 @@
 (define-struct ParameterDescription (type-oids) #:transparent)
 (define (parse:ParameterDescription p)
   (with-length-in p #\t
+    (define param-count (io:read-uint16 p))
     (let* ([type-oids
-            (for/list ([i (in-range (io:read-uint16 p))])
+            (for/list ([i (in-range param-count)])
               (io:read-int32 p))])
-      (make-ParameterDescription type-oids))))
+      ;; If the statement has 2^16 or more parameters, then PostgreSQL sends an inaccurate
+      ;; param-count (masked to 16 LSBs), but it sends *all* of the parameter types.
+      ;; So detect when message has content left over after param-count types.
+      (cond [(eof-object? (peek-byte p))
+             (make-ParameterDescription type-oids)]
+            [else 'too-many-parameters]))))
 
 (define-struct ParameterStatus (name value) #:transparent)
 (define (parse:ParameterStatus p)
@@ -428,8 +439,9 @@
 (define-struct RowDescription (fields) #:transparent)
 (define (parse:RowDescription p)
   (with-length-in p #\T
+    (define field-count (io:read-uint16 p))
     (let* ([fields
-            (for/list ([i (in-range (io:read-int16 p))])
+            (for/list ([i (in-range field-count)])
               (let* ([name (io:read-null-terminated-string p)]
                      [table-oid (io:read-int32 p)]
                      [column-attid (io:read-int16 p)]
@@ -438,7 +450,10 @@
                      [type-mod (io:read-int32 p)]
                      [format-code (io:read-int16 p)])
                 (vector name table-oid column-attid type-oid type-size type-mod format-code)))])
-      (make-RowDescription fields))))
+      ;; See comment for ParameterDescription
+      (cond [(eof-object? (peek-byte p))
+             (make-RowDescription fields)]
+            [else 'too-many-fields]))))
 
 (define-struct SASLInitialResponse (method content) #:transparent)
 (define (write:SASLInitialResponse p v)
