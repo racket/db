@@ -370,9 +370,8 @@ jsonb = version:byte byte*
       (if (= len -1)
           sql-null
           (let ([reader (send dbsys typeid->type-reader typeid)])
-            (if reader
-                (reader buf start (+ start (max 0 len)))
-                'unreadable)))))
+            (begin0 (if reader (reader buf start (+ start len)) 'unreadable)
+              (set! start (+ start len)))))))
   (let* ([columns (get-int #t)]
          [result (make-vector columns #f)])
     (for ([i (in-range columns)])
