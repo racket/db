@@ -397,7 +397,12 @@ built on.
 Workarounds for a few database systems are available:
 @itemlist[
 
-@item{@bold{PostgreSQL:} Wrap the statements in a
+@item{@bold{PostgreSQL:} Inserting, updating, or deleting many rows with a
+single query is possible using the @tt{UNNEST} function on array arguments. See
+for example @hyperlink[pg-bulk-url]{Postgres UNNEST cheat sheet for bulk
+operations}.
+
+To execute dissimilar statements as a single query, wrap the statements in a
 @hyperlink["https://www.postgresql.org/docs/current/sql-do.html"]{@tt{DO}}
 statement. Note that the body of a @tt{DO} statement must be given as a string
 literal; use PostgreSQL's
@@ -411,7 +416,7 @@ example:
 @item{@bold{MySQL, some other systems:} Wrap the statements in a new stored
 procedure using
 @hyperlink["https://dev.mysql.com/doc/refman/8.0/en/create-procedure.html"]{@tt{CREATE
-PROCEDURE}}, @tt{CALL} the procedure to execute the statments, and then
+PROCEDURE}}, then @tt{CALL} the procedure to execute the statements, and then
 @tt{DROP} the stored procedure. The procedure must cause at most one result set
 to be returned.
 
@@ -429,3 +434,29 @@ CALL tmpproc
 support stored procedures.}
 
 ]
+
+@(define pg-bulk-url
+   "https://www.atdatabases.org/blog/2022/01/21/optimizing-postgres-using-unnest")
+@; also https://klotzandrew.com/blog/postgres-passing-65535-parameter-limit/
+
+@;{
+CREATE TABLE users (
+  email TEXT NOT NULL PRIMARY KEY,
+  favorite_color TEXT NOT NULL)
+
+INSERT INTO users (email, favorite_color)
+SELECT * FROM UNNEST(?::TEXT[], ?::TEXT[])
+
+UPDATE users
+SET favorite_color = bulk.updated_favorite_color
+FROM (
+    SELECT * FROM UNNEST(?::TEXT[], ?::TEXT[])
+    AS t(email, updated_favorite_color)
+  ) AS bulk
+WHERE users.email = bulk.email
+
+DELETE FROM users
+WHERE (email, favorite_color) IN (
+  SELECT * FROM UNNEST(?::TEXT[], ?::TEXT[])
+)
+}
