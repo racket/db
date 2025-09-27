@@ -77,6 +77,14 @@ Base connections are made using the following functions.
   unless @racket[allow-cleartext-password?] is @racket['local] and the
   connection is to @racket["localhost"] or a local socket.
 
+  If the server requests an OAuth 2.0 bearer token, the token is passed using
+  the @racket[password] argument. The token is only sent if the connection uses
+  SSL or if the connection is to @racket["localhost"] or a local socket. If
+  @racket[password] is @racket[#f] or if authentication fails, an
+  @racket[exn:fail:sql] exception is raised with an @racket['auth/oauthbearer]
+  info field with a string containing failure information
+  @hyperlink["https://datatracker.ietf.org/doc/html/rfc7628#section-3.2.2"]{(RFC 7628)}.
+
   If the @racket[ssl] argument is either @racket['yes] or
   @racket['optional], the connection attempts to negotiate an SSL
   connection. If the server refuses SSL, the connection raises an
@@ -128,7 +136,8 @@ Base connections are made using the following functions.
      (new connection%)]]
 
 @history[#:changed "1.2" @elem{Added support for @tt{SCRAM-SHA-256} authentication.}
-         #:changed "1.7" @elem{Added support for @tt{SCRAM-SHA-256-PLUS} authentication.}]
+         #:changed "1.7" @elem{Added support for @tt{SCRAM-SHA-256-PLUS} authentication.}
+         #:changed "1.12" @elem{Added support for @tt{OAUTHBEARER} authentication.}]
 }
 
 @defproc[(postgresql-guess-socket-path)

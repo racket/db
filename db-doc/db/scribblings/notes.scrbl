@@ -58,18 +58,33 @@ PostgreSQL supports a large variety of
 mechanisms}, controlled by the @tt{pg_hba.conf} server configuration
 file. This library currently works with the following authentication methods:
 @itemlist[
-@item{@tt{plain} (and @tt{ldap}, @tt{pam}, @tt{radius}): cleartext password, only if
-explicitly allowed (see @racket[postgresql-connect])}
-@item{@tt{md5}: MD5-hashed password}
-@item{@tt{scram-sha-256}: password-based challenge/response protocol. Depending
-on server configuration and whether TLS is used, this may correspond to either
-@tt{SCRAM-SHA-256} or @tt{SCRAM-SHA-256-PLUS}.}
+
 @item{@tt{peer}: only for local sockets}
+
+@item{@tt{password}, @tt{ldap}, @tt{pam}, @tt{radius}, @tt{bsd}: cleartext password,
+only if explicitly allowed (see @racket[postgresql-connect])}
+
+@item{@tt{md5}: MD5-hashed password}
+
+@item{@tt{scram-sha-256}: password-based
+challenge/response protocol using SASL
+
+See @tt{SCRAM-SHA-256} and @tt{SCRAM-SHA-256-PLUS} from
+@hyperlink["https://datatracker.ietf.org/doc/html/rfc7677"]{RFC 7677}.}
+
+@item{@tt{oauth}: OAuth 2.0 bearer token authentication using SASL. This library
+does not directly support any authorization flows; tokens must be obtained by
+other means.
+
+See @index["OAUTHBEARER"]{@tt{OAUTHBEARER}} from
+@hyperlink["https://datatracker.ietf.org/doc/html/rfc7628"]{RFC 7628}.}
+
 ]
 The @tt{gss}, @tt{sspi}, and @tt{krb5} methods are not supported.
 
 @history[#:changed "1.2" @elem{Added @tt{SCRAM-SHA-256} support.}
-         #:changed "1.7" @elem{Added @tt{SCRAM-SHA-256-PLUS} support.}]
+         #:changed "1.7" @elem{Added @tt{SCRAM-SHA-256-PLUS} support.}
+         #:changed "1.12" @elem{Added @tt{OAUTHBEARER} support.}]
 
 @section[#:tag "postgresql-timestamp-tz"]{PostgreSQL Timestamps and Time Zones}
 
