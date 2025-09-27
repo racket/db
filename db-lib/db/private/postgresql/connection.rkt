@@ -112,18 +112,18 @@
           (check-ready-for-query fsym #f))))
 
     ;; recv-message : symbol -> message
-    (define/private (recv-message fsym)
+    (define/private (recv-message fsym [error-info null])
       (let ([r (raw-recv)])
         (cond [(ErrorResponse? r)
                ;; No need to check for FATAL errors here and disconnect, because
                ;; followed by EOF, handled by check-ready-for-query.
                (check-ready-for-query fsym #t)
-               (raise-backend-error fsym r)]
+               (raise-backend-error fsym r error-info)]
               [(or (NoticeResponse? r)
                    (NotificationResponse? r)
                    (ParameterStatus? r))
                (handle-async-message fsym r)
-               (recv-message fsym)]
+               (recv-message fsym error-info)]
               [else r])))
 
     ;; raw-recv : -> message
@@ -320,15 +320,44 @@
                                  #:channel-binding (ssl-port? inport)))
                   (connect:auth/scram "SCRAM-SHA-256" scram)
                   (connect:expect-auth username password local?)]
+                 [(and (member "OAUTHBEARER" methods) (or local? (ssl-port? inport)))
+                  (connect:auth/oauthbearer "OAUTHBEARER" password)]
                  [else
-                  (error/no-support 'postgresql-connect
-                                    (format "SASL authentication ~a" methods))])]
+                  (error 'postgresql-connect
+                         "no supported SASL authentication mechanism~a"
+                         (apply string-append
+                          (for/list ([method (in-list methods)])
+                            (format "\n  server offered: ~s, ~a"
+                                    method
+                                    (case method
+                                      [("SCRAM-SHA-256-PLUS") "requires SSL"]
+                                      [("SCRAM-SHA-256") "supported"]
+                                      [("OAUTHBEARER") "requires local or SSL"]
+                                      [else "unsupported"])))))])]
           [(NegotiateProtocolVersion major minor unsupported-options)
            (unless (and (= 3 major) (null? unsupported-options))
              (error/comm 'postgresql-connect "during authentication"))
            (connect:expect-auth username password local?)]
           ;; ErrorResponse handled by recv-message
           [_ (error/comm 'postgresql-connect "during authentication")])))
+
+    (define/private (connect:auth/oauthbearer method password)
+      (define msg
+        (cond [password (format "n,,\1auth=Bearer ~a\1\1" password)]
+              [else (format "n,,\1auth=\1\1")]))
+      (send-message (make-SASLInitialResponse method msg))
+      (match (recv-message 'postgresql-connect)
+        [(AuthenticationOk)
+         (connect:expect-ready-for-query)]
+        [(AuthenticationSASLContinue content)
+         ;; Rejected, content contains error info as JSON object
+         (send-message (make-SASLResponse "\1"))
+         (define error-info (list (cons 'auth/oauthbearer content)))
+         ;; The server should now send an ErrorResponse. If so, it is enhanced
+         ;; with info from server. If not, raise fallback error.
+         (void (recv-message 'postgresql-connect error-info))
+         (error 'postgresql-connect "authentication failed (OAUTHBEARER)")]
+        [_ (error/comm 'postgresql-connect "during authentication")]))
 
     (define/private (connect:auth/scram method scram)
       (send-message (make-SASLInitialResponse method (sasl-next-message scram)))
@@ -819,8 +848,8 @@
 ;; ========================================
 
 ;; raise-backend-error : symbol ErrorResponse -> raises exn
-(define (raise-backend-error who r)
-  (define props (ErrorResponse-properties r))
+(define (raise-backend-error who r [extra-info null])
+  (define props (append (ErrorResponse-properties r) extra-info))
   (define code (cdr (assq 'code props)))
   (define message (cdr (assq 'message props)))
   (raise-sql-error who code message props))
