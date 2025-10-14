@@ -241,13 +241,16 @@
  [connection-pool
   (->* ((-> connection?))
        (#:max-connections (or/c (integer-in 1 10000) +inf.0)
-        #:max-idle-connections (or/c (integer-in 1 10000) +inf.0))
+        #:max-idle-connections (or/c (integer-in 1 10000) +inf.0)
+        #:max-idle-seconds (>=/c 0))
        connection-pool?)]
  [connection-pool?
   (-> any/c boolean?)]
  [connection-pool-lease
   (->* (connection-pool?)
-       ((or/c custodian? evt?))
+       ((or/c custodian? evt?)
+        #:timeout (or/c #f (>=/c 0))
+        #:fail any/c)
        connection?)])
 
 ;; ============================================================

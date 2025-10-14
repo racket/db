@@ -8,6 +8,25 @@
          connection-pool?
          connection-pool-lease)
 
+;; channel-call : Channel (-> X) b:Boolean -> (if b (Evt X) X)
+(define (channel-call chan proc as-evt?)
+  (define result #f) ;; mutated
+  (define sema (make-semaphore 0))
+  (define (wrapped-proc)
+    (set! result
+          (with-handlers ([(lambda (e) #t)
+                           (lambda (e) (cons 'exn e))])
+            (cons 'values (call-with-values proc list))))
+    (semaphore-post sema))
+  (define (handler _evt)
+    (semaphore-wait sema)
+    (case (car result)
+      ((values) (apply values (cdr result)))
+      ((exn) (raise (cdr result)))))
+  (if as-evt?
+      (wrap-evt (channel-put-evt chan wrapped-proc) handler)
+      (begin (channel-put chan wrapped-proc) (handler #f))))
+
 ;; manager% implements kill-safe manager thread w/ request channel
 (define manager%
   (class object%
@@ -26,31 +45,15 @@
                  (other-evt))
            (loop)))))
 
+    (define/public (resume)
+      (thread-resume mthread (current-thread)))
     (define/public (call proc)
-      (call* proc req-channel #f))
+      (resume)
+      (channel-call req-channel proc #f))
     (define/public (call-evt proc)
-      (call* proc req-channel #t))
-
-    (define/private (call* proc chan as-evt?)
-      (thread-resume mthread (current-thread))
-      (let* ([result #f]
-             [sema (make-semaphore 0)]
-             [proc (lambda ()
-                     (set! result
-                           (with-handlers ([(lambda (e) #t)
-                                            (lambda (e) (cons 'exn e))])
-                             (cons 'values (call-with-values proc list))))
-                     (semaphore-post sema))]
-             [handler
-              (lambda (_evt)
-                (semaphore-wait sema)
-                (case (car result)
-                  ((values) (apply values (cdr result)))
-                  ((exn) (raise (cdr result)))))])
-        (if as-evt?
-            (wrap-evt (channel-put-evt chan proc) handler)
-            (begin (channel-put chan proc)
-                   (handler #f)))))))
+      (resume)
+      (channel-call req-channel proc #t))
+    ))
 
 ;; ----
 
@@ -226,109 +229,164 @@
          (get-key get-key))))
 
 ;; ========================================
-
 ;; Connection pool
+
+;; Delay in milliseconds before discarding connections over max-idle limit.
+(define DISCARD-DELAY-MS 50.0)
 
 (define connection-pool%
   (class* object% ()
     (init-private connector              ;; called from manager thread
                   max-connections
-                  max-idle-connections)
+                  max-idle
+                  max-idle-ms)
     (super-new)
+
+    ;; ========================================
+    ;; methods called in manager thread
 
     (define proxy-counter 1) ;; for debugging
     (define actual-counter 1) ;; for debugging
     (define actual=>number (make-weak-hasheq))
 
-    ;; == methods called in manager thread ==
-
-    ;; assigned-connections : nat
-    (define assigned-connections 0)
+    (define/private (next-proxy-number)
+      (let ([n proxy-counter]) (set! proxy-counter (add1 n)) n))
+    (define/private (next-actual-number)
+      (let ([n actual-counter]) (set! actual-counter (add1 n)) n))
 
     ;; proxy=>evt : hasheq[proxy-connection => evt]
-    (define proxy=>evt (make-hasheq))
+    (define proxy=>evt (hasheq))
 
-    ;; idle-list : (listof raw-connection)
-    (define idle-list null)
-
-    ;; lease* : Evt -> (U Connection 'limit)
+    ;; lease* : Evt -> Connection/#f
     (define/private (lease* key)
-      (cond [(< assigned-connections max-connections)
-             (cond [(try-take-idle)
-                    => (lambda (raw-c) (lease** key raw-c #t))]
-                   [else (lease** key (new-connection) #f)])]
-            [else 'limit]))
+      (cond [(try-take-idle)
+             => (lambda (raw-c) (lease** key raw-c #t))]
+            [(not (< (hash-count proxy=>evt) max-connections))
+             #f]
+            [else
+             (define raw-c (connector))
+             (hash-set! actual=>number raw-c (next-actual-number))
+             (lease** key raw-c #f)]))
 
     (define/private (lease** key raw-c reused?)
-      (define proxy-number proxy-counter)
-      (set! proxy-counter (add1 proxy-counter))
-      (define c
-        (new proxy-connection%
-             (pool this) (connection raw-c) (number proxy-number)))
+      (define proxy-number (next-proxy-number))
       (log-db-debug "connection-pool: leasing connection #~a (~a @~a)"
-                    proxy-number
-                    (if reused? "idle" "new")
+                    proxy-number (if reused? "idle" "new")
                     (hash-ref actual=>number raw-c "???"))
-      (hash-set! proxy=>evt c (wrap-evt key (lambda (_e) c)))
-      (set! assigned-connections (add1 assigned-connections))
+      (define c (new proxy-connection% (pool this) (connection raw-c) (number proxy-number)))
+      (set! proxy=>evt (hash-set proxy=>evt c (wrap-evt key (lambda (_e) c))))
       c)
-
-    (define/private (try-take-idle)
-      (and (pair? idle-list)
-           (let ([c (car idle-list)])
-             (set! idle-list (cdr idle-list))
-             (if (send c connected?)
-                 c
-                 (try-take-idle)))))
 
     (define/private (release* proxy raw-c why)
       (log-db-debug "connection-pool: releasing connection #~a (~a, ~a)"
                     (send proxy get-number)
                     (cond [(not raw-c) "no-op"]
-                          [(< (length idle-list) max-idle-connections) "idle"]
+                          [(< (hash-count idle-list) max-idle) "idle"]
                           [else "disconnect"])
                     why)
-      (hash-remove! proxy=>evt proxy)
+      (set! proxy=>evt (hash-remove proxy=>evt proxy))
       (when raw-c
-        (with-handlers ([exn:fail? void])
-          ;; If in tx, just disconnect (for simplicity; else must loop for nested txs)
-          (when (send raw-c transaction-status 'connection-pool)
-            (send raw-c disconnect)))
-        (cond [(and (< (length idle-list) max-idle-connections)
-                    (send raw-c connected?))
-               (set! idle-list (cons raw-c idle-list))]
-              [else (send raw-c disconnect)])
-        (set! assigned-connections (sub1 assigned-connections))))
+        ;; If in tx, just disconnect (for simplicity; else must loop for nested txs)
+        (define (handle-tx-exn e)
+          (log-db-error "connection pool: error from transaction-status: ~e" (exn-message e)))
+        (cond [(with-handlers ([exn:fail? handle-tx-exn])
+                 (send raw-c transaction-status 'connection-pool))
+               (begin (discard-connection raw-c) #t)]
+              [else (add-idle! raw-c)])))
 
-    (define/private (new-connection)
-      (define c (connector))
-      (define actual-number actual-counter)
-      (set! actual-counter (add1 actual-counter))
-      (when (or (hash-ref proxy=>evt c #f) (memq c idle-list))
-        (error 'connection-pool "connect function did not produce a fresh connection"))
-      (hash-set! actual=>number c actual-number)
-      c)
+    (define/private (discard-connection raw-c)
+      (log-db-debug "connection pool: discarding connection @~a"
+                    (hash-ref actual=>number raw-c "???"))
+      (define (handle e)
+        (log-db-error "connection pool: error from disconnect: ~s" (exn-message e)))
+      (with-handlers ([exn:fail? handle])
+        (send raw-c disconnect)))
+
+    ;; ----------------------------------------
+    ;; idle list
+
+    ;; idle-list : hasheq[raw-connection => monotonic-time-ms]
+    (define idle-list (hasheq))
+
+    ;; soonest-timeout-ms : monotonic-time-ms
+    (define soonest-timeout-ms +inf.0)
+
+    ;; discard-excess-ms : monotonic-time-ms
+    (define discard-excess-ms +inf.0)
+
+    (define/private (add-idle! raw-c)
+      (define now (current-inexact-monotonic-milliseconds))
+      (define timeout-ms (+ now max-idle-ms))
+      (set! idle-list (hash-set idle-list raw-c timeout-ms))
+      (set! soonest-timeout-ms (min soonest-timeout-ms timeout-ms))
+      (when (> (hash-count idle-list) max-idle)
+        (set! discard-excess-ms (min discard-excess-ms (+ now DISCARD-DELAY-MS)))))
+
+    (define/private (try-take-idle)
+      (define c (for/first ([c (in-hash-keys idle-list)]) c))
+      (when c (set! idle-list (hash-remove idle-list c)))
+      (and c (if (send c connected?) c (try-take-idle))))
+
+    (define/private (trim-idle-excess)
+      (unless (< (hash-count idle-list) max-idle)
+        (define to-discard (- (hash-count idle-list) max-idle))
+        (set! idle-list (for/fold ([idle idle-list])
+                                  ([i (in-range to-discard)]
+                                   [c (in-hash-keys idle-list)])
+                          (discard-connection c)
+                          (hash-remove idle c)))
+        (set! discard-excess-ms +inf.0)))
+
+    (define/private (trim-idle-timeouts)
+      (define now (current-inexact-monotonic-milliseconds))
+      (define-values (new-idle-list min-timeout-ms)
+        (for/fold ([idle idle-list] [min-timeout-ms +inf.0])
+                  ([(c timeout-ms) (in-hash idle-list)])
+          (cond [(<= timeout-ms now)
+                 (discard-connection c)
+                 (values (hash-remove idle c) min-timeout-ms)]
+                [else (values idle (min min-timeout-ms timeout-ms))])))
+      (set! idle-list new-idle-list)
+      (set! soonest-timeout-ms min-timeout-ms))
 
     (define/private (clear-idle*)
-      (for ([c (in-list idle-list)])
-        (send c disconnect))
-      (set! idle-list null))
+      (set! soonest-timeout-ms +inf.0)
+      (set! discard-excess-ms +inf.0)
+      (for ([c (in-hash-keys idle-list)])
+        (discard-connection c))
+      (set! idle-list (hasheq)))
+
+    ;; Blocking lease requests use this channel, and the manager only accepts
+    ;; the requests when it is able to fill them.
+    (define lease-channel (make-channel))
 
     (define mgr
       (new manager%
            (other-evt
             (lambda ()
-              (let ([evts (hash-values proxy=>evt)])
-                (handle-evt (apply choice-evt evts)
-                            (lambda (proxy)
-                              (release* proxy
-                                        (send proxy release-connection)
-                                        "release-evt"))))))))
+              (choice-evt
+               (cond [(< (hash-count proxy=>evt) max-connections)
+                      (wrap-evt lease-channel (lambda (p) (p)))]
+                     [else never-evt])
+               (handle-evt (apply choice-evt (hash-values proxy=>evt))
+                           (lambda (proxy)
+                             (release* proxy
+                                       (send proxy release-connection)
+                                       "release-evt")))
+               (handle-evt (alarm-evt discard-excess-ms #t)
+                           (lambda (_evt) (trim-idle-excess)))
+               (handle-evt (alarm-evt soonest-timeout-ms #t)
+                           (lambda (_evt) (trim-idle-timeouts))))))))
 
-    ;; == methods called in client thread ==
+    ;; ========================================
+    ;; methods called in client thread
 
-    (define/public (lease-evt key)
-      (send mgr call-evt (lambda () (lease* key))))
+    (define/public (lease-evt key block?)
+      (cond [block?
+             (send mgr resume)
+             (channel-call lease-channel (lambda () (lease* key)) #t)]
+            [else
+             (send mgr call-evt (lambda () (lease* key)))]))
 
     (define/public (release proxy)
       (let ([raw-c (send proxy release-connection)])
@@ -387,24 +445,26 @@
 
 (define (connection-pool connector
                          #:max-connections [max-connections +inf.0]
-                         #:max-idle-connections [max-idle-connections 10])
+                         #:max-idle-connections [max-idle 10]
+                         #:max-idle-seconds [max-idle-s 300])
   (new connection-pool%
        (connector connector)
        (max-connections max-connections)
-       (max-idle-connections max-idle-connections)))
+       (max-idle max-idle)
+       (max-idle-ms (* 1000.0 max-idle-s))))
 
 (define (connection-pool? x)
   (is-a? x connection-pool%))
 
-(define (connection-pool-lease pool [key (current-thread)]
-                               #:timeout [timeout +inf.0])
-  (let ([key
-         (cond [(thread? key) (thread-dead-evt key)]
-               [(custodian? key) (make-custodian-box key #t)]
-               [else key])])
-    (cond [(sync/timeout timeout (send pool lease-evt key))
-           => (lambda (result)
-                (when (eq? result 'limit)
-                  (error 'connection-pool-lease "connection pool limit reached"))
-                result)]
-          [else #f])))
+(define (connection-pool-lease pool [key0 (current-thread)]
+                               #:timeout [timeout-s #f]
+                               #:fail [fail
+                                       (lambda ()
+                                         (error 'connection-pool-lease
+                                                "connection pool limit reached"))])
+  (define key
+    (cond [(thread? key0) (thread-dead-evt key0)]
+          [(custodian? key0) (make-custodian-box key0 #t)]
+          [else key0]))
+  (or (sync/timeout timeout-s (send pool lease-evt key (and timeout-s #t)))
+      (if (procedure? fail) (fail) fail)))

@@ -430,16 +430,21 @@ connections.
 @defproc[(connection-pool
              [connect (-> connection?)]
              [#:max-connections max-connections (or/c (integer-in 1 10000) +inf.0) +inf.0]
-             [#:max-idle-connections max-idle-connections (or/c (integer-in 1 10000) +inf.0) 10])
+             [#:max-idle-connections max-idle-connections (or/c (integer-in 1 10000) +inf.0) 10]
+             [#:max-idle-seconds max-idle-seconds (>=/c 0) 300])
          connection-pool?]{
 
-Creates a @tech{connection pool}. The pool consists of up to
-@racket[max-connections], divided between leased connections and up to
-@racket[max-idle-connections] idle connections. The pool uses
-@racket[connect] to create new connections when needed. The
-@racket[connect] function is called with the same
-@racket[current-custodian] value as when the connection pool was
-created, and it must return a fresh connection each time it is called.
+Creates a @tech{connection pool}. The pool contains up to
+@racket[max-connections] actual database connections, divided between the
+currently leased connections and up to @racket[max-idle-connections] idle
+connections. If a connection is idle for more than @racket[max-idle-seconds]
+seconds, then it is disconnected and removed from the connection pool.
+
+The pool uses @racket[connect] to create new actual connections when needed. The
+@racket[connect] function must return a fresh connection each time it is
+called. When the pool calls @racket[connect], the value of
+@racket[(current-custodian)] is the same as when the connection pool was
+created.
 
 @examples[#:eval the-eval
 (eval:alts
@@ -459,7 +464,8 @@ created, and it must return a fresh connection each time it is called.
 See also @racket[virtual-connection] for a mechanism that eliminates
 the need to explicitly call @racket[connection-pool-lease] and
 @racket[disconnect].
-}
+
+@history[#:changed "1.13" @elem{Added @racket[#:max-idle-seconds] argument.}]}
 
 @defproc[(connection-pool? [x any/c]) boolean?]{
 
@@ -469,28 +475,33 @@ otherwise.
 
 @defproc[(connection-pool-lease
              [pool connection-pool?]
-             [release (or/c evt? custodian?) (current-thread)])
+             [release (or/c evt? custodian?) (current-thread)]
+             [#:timeout timeout-seconds (or/c #f (>=/c 0)) #f]
+             [#:fail fail any/c (lambda () (error ....))])
          connection?]{
 
-Obtains a connection from the connection pool, using an existing idle
-connection in @racket[pool] if one is available. If no idle connection
-is available and the pool contains fewer than its maximum allowed
-connections, a new connection is created; otherwise an exception is
-raised.
+Obtains a connection from the connection pool, using an existing idle connection
+in @racket[pool] if one is available. If @racket[timeout-seconds] is
+@racket[#f], then if the pool cannot immediately supply a connection, the lease
+request fails. If @racket[timeout-seconds] is a number, then if the pool does
+not satisfy the request within @racket[timeout-seconds], then the lease request
+fails. In either case, if the lease request fails, @racket[fail] is called if it
+is a procedure or returned otherwise.
 
-Calling @racket[disconnect] on the connection obtained causes the
-connection to be released back to the connection pool. The connection
-is also released if @racket[release] becomes available, if it is a
-synchronizable event, or if @racket[release] is shutdown, if it is a
-custodian. The default for @racket[release] is the current thread, so
-the resulting connection is released when the thread that requested it
-terminates.
+Calling @racket[disconnect] on the leased connection causes the connection to be
+released back to the connection pool. The connection may also be released
+automatically: if @racket[release] is a synchronizable event, the connection is
+released when the event becomes ready; if @racket[release] is a custodian, the
+connection is released when the custodian is shut down. The default for
+@racket[release] is the current thread, so the connection is released when the
+thread that requested it terminates.
 
 When a connection is released, it is kept as an idle connection if
-@racket[pool]'s idle connection limit would not be exceeded;
-otherwise, it is disconnected. In either case, if the connection is in
-a transaction, the transaction is rolled back.
-}
+@racket[pool]'s idle connection limit would not be exceeded; otherwise, it is
+disconnected. In either case, if the connection is in a transaction, the
+transaction is rolled back.
+
+@history[#:changed "1.13" @elem{Added @racket[#:timeout] and @racket[#:fail].}]}
 
 
 @;{========================================}
