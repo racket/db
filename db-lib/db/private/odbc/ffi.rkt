@@ -238,7 +238,7 @@
         (_sqlsmallint = (if connection* (buf-length connection*) 0))
         (_bytes = #f)
         (_sqlsmallint = 0)
-        (out-length : (_ptr o _sqlsmallint))
+        (out-length : (_ptr o _sqlsmallint atomic-interior))
         (driver-completion : _sqlusmallint)
         -> (status : _sqlreturn)
         -> status))
