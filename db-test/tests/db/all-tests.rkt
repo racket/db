@@ -224,6 +224,7 @@ Testing profiles are flattened, not hierarchical.
 
 (define gui? #f)
 (define include-sqlite? #f)
+(define use-parallel-thread? #f)
 
 (define-runtime-path testing-dsn "test-dsn.rktd")
 
@@ -237,10 +238,13 @@ Testing profiles are flattened, not hierarchical.
  [("-f" "--config-file") file  "Use configuration file" (pref-file file)]
  [("-p" "--add-use-place") "Add #:use-place variants" (set! add-use-place? #t)]
  [("-t" "--testing-dsn-file") "Use testing DSN file" (current-dsn-file testing-dsn)]
+ [("--parallel") "Run tests in parallel thread" (set! use-parallel-thread? #t)]
  #:args labels
  (let ()
    (define no-labels? (not (or include-sqlite? (pair? labels))))
    (when no-labels? (set! add-use-place? #t))
+   (when (and gui? use-parallel-thread?)
+     (error 'all-tests "incompatible options: `--gui` and `--parallel`"))
    (define dbconfs
      (append (if (or include-sqlite? no-labels?)
                  (list sqlite3-dbconf)
@@ -254,6 +258,10 @@ Testing profiles are flattened, not hierarchical.
    (define tests (for/list ([dbconf dbconfs2])
                    (cons (format "~a" (dbconf-name dbconf))
                          (make-all-tests (list dbconf)))))
+   (define (run proc) ;; returns void
+     (cond [use-parallel-thread?
+            (thread-wait (thread #:pool 'own proc))]
+           [else (proc)]))
    (parameterize ((current-custodian cust))
      (cond [gui?
             (let* ([test/gui (dynamic-require 'rackunit/gui 'test/gui)])
@@ -261,7 +269,7 @@ Testing profiles are flattened, not hierarchical.
            [else
             (for ([test tests])
               (printf "Running ~s tests\n" (car test))
-              (time (run-tests (make-test-suite (car test) (cdr test))))
+              (time (run (lambda () (run-tests (make-test-suite (car test) (cdr test))))))
               (newline))]))))
 
 ;; The tests generally don't explicitly disconnect their connections. The
