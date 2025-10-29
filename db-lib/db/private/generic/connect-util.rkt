@@ -288,10 +288,12 @@
       (when raw-c
         ;; If in tx, just disconnect (for simplicity; else must loop for nested txs)
         (define (handle-tx-exn e)
-          (log-db-error "connection pool: error from transaction-status: ~e" (exn-message e)))
-        (cond [(with-handlers ([exn:fail? handle-tx-exn])
-                 (send raw-c transaction-status 'connection-pool))
-               (begin (discard-connection raw-c) #t)]
+          (log-db-debug "connection pool: error from transaction-status @~a: ~e"
+                        (hash-ref actual=>number raw-c "???") (exn-message e)))
+        (cond [(with-handlers ([exn:fail? (lambda (e) (begin (handle-tx-exn e) #t))])
+                 (or (not (send raw-c connected?))
+                     (send raw-c transaction-status 'connection-pool)))
+               (discard-connection raw-c)]
               [else (add-idle! raw-c)])))
 
     (define/private (discard-connection raw-c)
