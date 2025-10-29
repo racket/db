@@ -672,10 +672,10 @@
         (custodian-shutdown-all cust)))))
 
 (define pool-tests
+  ;; Proxy connections are not released when unreachable by user program
+  ;; (pool keeps strong reference), so use custodian to clean up test cases.
   (test-suite "connection pools"
     (test-case "lease, limit, release"
-      ;; Proxy connections are not released when unreachable by user program
-      ;; (pool keeps strong reference), so use custodian to clean up test case.
       (with-custodian-shutdown
         (let* ([counter 0]
                [p (connection-pool (lambda () (set! counter (+ 1 counter)) (connect-for-test))
@@ -693,21 +693,23 @@
             (check-equal? counter 2 "not new") ;; used idle, not new connection
             (check-equal? (connected? c3) #t)))))
     (test-case "release on evt"
-      (let* ([p (connection-pool connect-for-test #:max-connections 2)]
-             [sema (make-semaphore 0)]
-             [c1 (connection-pool-lease p sema)])
-        (check-equal? (connected? c1) #t)
-        ;; Closes when evt ready
-        (begin (semaphore-post sema) (sleep 0.1))
-        (check-equal? (connected? c1) #f)))
+      (with-custodian-shutdown
+        (let* ([p (connection-pool connect-for-test #:max-connections 2)]
+               [sema (make-semaphore 0)]
+               [c1 (connection-pool-lease p sema)])
+          (check-equal? (connected? c1) #t)
+          ;; Closes when evt ready
+          (begin (semaphore-post sema) (sleep 0.1))
+          (check-equal? (connected? c1) #f))))
     (test-case "release on custodian"
-      (let* ([p (connection-pool connect-for-test #:max-connections 2)]
-             [cust (make-custodian)]
-             [c1 (connection-pool-lease p cust)])
-        (check-equal? (connected? c1) #t)
-        ;; Closes when custodian shutdown
-        (begin (custodian-shutdown-all cust) (sleep 0.1))
-        (check-equal? (connected? c1) #f)))))
+      (with-custodian-shutdown
+        (let* ([p (connection-pool connect-for-test #:max-connections 2)]
+               [cust (make-custodian)]
+               [c1 (connection-pool-lease p cust)])
+          (check-equal? (connected? c1) #t)
+          ;; Closes when custodian shutdown
+          (begin (custodian-shutdown-all cust) (sleep 0.1))
+          (check-equal? (connected? c1) #f))))))
 
 (define test
   (test-suite "query API"
