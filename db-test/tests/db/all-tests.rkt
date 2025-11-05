@@ -4,12 +4,15 @@
          racket/cmdline
          racket/file
          racket/place
+         racket/future
          racket/runtime-path
          rackunit
          rackunit/text-ui
          racket/unit
          ffi/unsafe/os-thread
          db
+         (only-in db/private/generic/ffi-common worker-modes)
+         (only-in db/sqlite3)
          "config.rkt"
          (prefix-in db-
                     (combine-in "db/connection.rkt"
@@ -128,37 +131,35 @@ Testing profiles are flattened, not hierarchical.
 (define (expand-dbconf x)
   (match x
     [(dbconf dbtestname (and r (data-source connector args exts)))
-     (define (ext-add new-vs)
-       (define vs
-         (cond [(assq 'db:test exts) => (match-lambda [(list _ vs) vs])]
-               [else null]))
-       (cons (list 'db:test (append new-vs vs)) exts))
+     (define flags (cond [(assq 'db:test exts) => cadr] [else null]))
+     (define (ext-dbconf use-place new-flags)
+       (dbconf (format "~a, use-place=~a" dbtestname use-place)
+               (data-source connector (list* '#:use-place use-place args) (ext-add new-flags))))
+     (define (ext-add new-flags)
+       (cons (list 'db:test (append new-flags flags)) exts))
      (cond [(and (memq connector '(odbc odbc-driver sqlite3))
                  (not (memq '#:use-place args)))
             (append
              (list x)
-             (if (os-thread-enabled?)
-                 (list (dbconf (format "~a, use-place=os-thread" dbtestname)
-                               (data-source connector
-                                            (list* '#:use-place 'os-thread args)
-                                            (ext-add '(async os-thread)))))
-                 null)
+             (for/list ([worker-mode (in-list worker-modes)])
+               (ext-dbconf worker-mode
+                           (case worker-mode
+                             [(os-thread) '(async os-thread)]
+                             [else '()])))
              (if (place-enabled?)
-                 (list (dbconf (format "~a, use-place=place" dbtestname)
-                               (data-source connector
-                                            (list* '#:use-place 'place args)
-                                            (ext-add '(async place)))))
+                 (list (ext-dbconf 'place '(async place)))
                  null))]
            [else (list x)])]))
 
-(define (dbconf->unit x)
+(define (dbconf->unit x [flags0 null])
   (match x
     [(dbconf dbtestname (and r (data-source connector _args exts)))
      (define (connect) (dsn-connect r))
      (define dbsys (case connector ((odbc-driver) 'odbc) (else connector)))
-     (define dbflags (cond [(assq 'db:test exts) => cadr] [else '()]))
+     (define dbflags (append flags0 (cond [(assq 'db:test exts) => cadr] [else '()])))
      (define (connect-first-time ssl?)
        (if ssl? (dsn-connect #:ssl 'yes r) (connect)))
+     ;; implicit ref to kill-safe?
      (unit-from-context database^)]))
 
 (define sqlite3-dbconf
@@ -211,7 +212,7 @@ Testing profiles are flattened, not hierarchical.
 
 (define (make-all-tests dbconfs)
   (for/list ([dbconf (in-list dbconfs)])
-    (specialize-test (dbconf->unit dbconf))))
+    (specialize-test (dbconf->unit dbconf base-flags))))
 
 ;; ----
 
@@ -222,13 +223,21 @@ Testing profiles are flattened, not hierarchical.
 
 ;; ----------------------------------------
 
+(define base-flags null)
+
 (define gui? #f)
 (define include-sqlite? #f)
 (define use-parallel-thread? #f)
+(define benchmark? #f)
+(define benchmark-iters 12)
 
 (define-runtime-path testing-dsn "test-dsn.rktd")
 
 (define cust (make-custodian))
+
+(define ((wrap/custodian proc))
+  (parameterize ((current-custodian (make-custodian)))
+    (begin0 (proc) (custodian-shutdown-all (current-custodian)))))
 
 (command-line
  #:once-each
@@ -238,13 +247,17 @@ Testing profiles are flattened, not hierarchical.
  [("-f" "--config-file") file  "Use configuration file" (pref-file file)]
  [("-p" "--add-use-place") "Add #:use-place variants" (set! add-use-place? #t)]
  [("-t" "--testing-dsn-file") "Use testing DSN file" (current-dsn-file testing-dsn)]
+ [("--benchmark") "Run in benchmark mode" (set! benchmark? #t)]
  [("--parallel") "Run tests in parallel thread" (set! use-parallel-thread? #t)]
  #:args labels
  (let ()
    (define no-labels? (not (or include-sqlite? (pair? labels))))
    (when no-labels? (set! add-use-place? #t))
+   (when benchmark? (set! base-flags (cons 'benchmark base-flags)))
    (when (and gui? use-parallel-thread?)
      (error 'all-tests "incompatible options: `--gui` and `--parallel`"))
+   (when (and gui? benchmark?)
+     (error 'all-tests "incompatible options: `--gui` and `--benchmark`"))
    (define dbconfs
      (append (if (or include-sqlite? no-labels?)
                  (list sqlite3-dbconf)
@@ -261,15 +274,32 @@ Testing profiles are flattened, not hierarchical.
    (define (run proc) ;; returns void
      (cond [use-parallel-thread?
             (thread-wait (thread #:pool 'own proc))]
-           [else (proc)]))
+           [else
+            (thread-wait (thread proc))]))
    (parameterize ((current-custodian cust))
      (cond [gui?
             (let* ([test/gui (dynamic-require 'rackunit/gui 'test/gui)])
               (apply test/gui #:wait? #t (append* (map cdr tests))))]
            [else
-            (for ([test tests])
+            (for ([test (in-list tests)])
+              (define the-test (make-test-suite (car test) (cdr test)))
+              (define (do-test) (run (lambda () (run-tests the-test))))
               (printf "Running ~s tests\n" (car test))
-              (time (run (lambda () (run-tests (make-test-suite (car test) (cdr test))))))
+              (cond [benchmark?
+                     (define real-ms-list
+                       (for/list ([i (in-range benchmark-iters)])
+                         (define-values (_rs cpu-ms real-ms sys-ms)
+                           (time-apply (wrap/custodian do-test) null))
+                         (collect-garbage)
+                         (printf "real time: ~s ms; memory use: ~s kb\n"
+                                 real-ms (quotient (current-memory-use) 1024))
+                         real-ms))
+                     (printf "~s ~s\n" (sort real-ms-list <)
+                             ;; Drop highest and lowest, report sum of rest
+                             (- (apply + real-ms-list)
+                                (+ (apply min real-ms-list) (apply max real-ms-list))))]
+                    [else
+                     (time (run (lambda () (run-tests (make-test-suite (car test) (cdr test))))))])
               (newline))]))))
 
 ;; The tests generally don't explicitly disconnect their connections. The
