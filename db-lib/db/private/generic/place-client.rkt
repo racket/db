@@ -46,31 +46,41 @@
 
     (define/private (call method-name who . args)
       (call-with-lock who (lambda () (call* method-name who args #t))))
-    (define/private (call/d method-name who . args)
-      (call-with-lock* who (lambda () (call* method-name who args #f)) #f #f))
     (define/private (call* method-name who args need-connected?)
       (cond [(and channel-box (custodian-box-value channel-box))
              => (lambda (channel)
                   (pchan-put channel (cons method-name args))
-                  (let* ([response (pchan-get channel)]
-                         [still-connected? (car response)])
-                    (when (not still-connected?) (set! channel-box #f))
-                    (match (cdr response)
-                      [(cons 'values vals)
-                       (apply values (for/list ([val (in-list vals)]) (sexpr->result val)))]
-                      [(list 'error message)
-                       (raise (make-exn:fail message (current-continuation-marks)))])))]
+                  (handle-response (pchan-get channel)))]
             [need-connected?
              (error/not-connected who)]
             [else (void)]))
+    (define/private (handle-response response)
+      (define still-connected? (car response))
+      (when (not still-connected?) (set! channel-box #f))
+      (match (cdr response)
+        [(cons 'values vals)
+         (apply values (for/list ([val (in-list vals)]) (sexpr->result val)))]
+        [(list 'error message)
+         (raise (make-exn:fail message (current-continuation-marks)))]))
 
     (define/override (connected?)
       (let ([channel-box channel-box])
         (and channel-box (custodian-box-value channel-box) #t)))
 
     (define/public (disconnect)
-      (call/d 'disconnect 'disconnect)
-      (set! channel-box #f))
+      (let* ([cbox channel-box]
+             [channel (and cbox (custodian-box-value cbox))])
+        (when channel
+          (call-with-lock* 'disconnect
+                           (lambda ()
+                             (set! channel-box #f)
+                             (pchan-put channel '(disconnect))
+                             (handle-response (pchan-get channel)))
+                           (lambda ()
+                             (set! channel-box #f)
+                             (pchan-put channel '(disconnect))
+                             (void))
+                           #f))))
 
     (define/public (get-dbsystem) (error 'get-dbsystem "not implemented"))
     (define/public (get-base) this)
@@ -99,12 +109,14 @@
       (call 'list-tables who who schema))
 
     (define/public (free-statement pst need-lock?)
-      (start-atomic)
       (let ([handle (send pst get-handle)])
         (send pst set-handle #f)
-        (end-atomic)
-        (when channel-box
-          (call/d 'free-statement 'free-statement handle need-lock?))))
+        (when (and handle channel-box)
+          (call-with-lock* 'free-statement
+                           (lambda () (call* 'free-statement 'free-statement
+                                             (list handle need-lock?) #f))
+                           void
+                           #f))))
 
     (define/private (sexpr->result x)
       (match x
