@@ -78,11 +78,16 @@
     (test-case "connected?, disconnect work w/ kill-thread damage"
       (let ([cx (connect-for-test)])
         (when (is-a? cx locking%)
+          (define ready (make-semaphore 0))
           (check-true (connected? cx))
           (let ([thd
                  (thread
                   (lambda ()
-                    (send cx call-with-lock 'test (lambda () (sync never-evt)))))])
+                    (send cx call-with-lock 'test
+                          (lambda ()
+                            (semaphore-post ready)
+                            (sync never-evt)))))])
+            (semaphore-wait ready)
             (kill-thread thd)
             (check-completes (lambda () (connected? cx)) "connected?")
             (check-completes (lambda () (disconnect cx)) "disconnect")
