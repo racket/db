@@ -28,11 +28,10 @@
       [(place)
        (place-connect (list 'sqlite3 path mode busy-retry-delay busy-retry-limit)
                       sqlite-place-proxy%)]
-      [(os-thread)
+      [else
        (define c (connect))
-       (send c use-os-thread #t)
-       c]
-      [else (connect)])))
+       (send c use-worker-mode use-place)
+       c])))
 
 (define sqlite-place-proxy%
   (class place-proxy-connection%

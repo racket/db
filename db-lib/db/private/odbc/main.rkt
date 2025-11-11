@@ -40,11 +40,10 @@
       [(place)
        (place-connect (list 'odbc dsn user auth strict-parameter-types? char-mode quirks)
                       odbc-proxy%)]
-      [(os-thread)
+      [else
        (define c (connect))
-       (send c use-os-thread #t)
-       c]
-      [else (connect)])))
+       (send c use-worker-mode use-place)
+       c])))
 
 (define (odbc-driver-connect connection-string
                              #:notice-handler [notice-handler void]
@@ -72,11 +71,10 @@
       [(place)
        (place-connect (list 'odbc-driver connection-string strict-parameter-types? char-mode quirks)
                       odbc-proxy%)]
-      [(os-thread)
+      [else
        (define c (connect))
-       (send c use-os-thread #t)
-       c]
-      [else (connect)])))
+       (send c use-worker-mode use-place)
+       c])))
 
 (define (normalize-use-place use-place)
   (cond [(eq? use-place #t)
