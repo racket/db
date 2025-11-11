@@ -221,3 +221,5 @@
 (define SQL_DESC_PRECISION 1005)
 (define SQL_DESC_SCALE 1006)
 (define SQL_DESC_DATA_PTR 1010)
+
+(define SQL_DIAG_NUMBER             2)

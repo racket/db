@@ -22,6 +22,16 @@
 (define sizeof-SQLLONG 4) ;; yes, even on 64-bit environments
 (define sizeof-SQLLEN (ctype-sizeof _sqllen))
 
+;; Some drivers (eg DB2 Linux-x86-64 11.05.0900) leave or put garbage in the
+;; high 32 bits when writing to a SQLLEN pointer (especially in SQLGetData).
+;; See eg https://www.ibm.com/mysupport/s/defect/aCI3p000000kHYh/dt162904
+(define (fix-sqllen v)
+  (define u (bitwise-bit-field v 0 32))
+  #;(cast u _uint32 _int32)
+  (if (bitwise-bit-set? u 31) (- u (expt 2 32)) u))
+(define (fix-sqlulen v)
+  (bitwise-bit-field v 0 32))
+
 (define _sqlsmallint _sshort)
 (define _sqlusmallint _ushort)
 (define _sqlinteger _sint)
@@ -312,7 +322,7 @@
   (_fun (handle : _sqlhstmt)
         (parameter : _sqlusmallint)
         (data-type : (_ptr o _sqlsmallint))
-        (size : (_ptr o _sqlulen))
+        (size : (_ptr io _sqlulen) = 0) ;; See SQLLEN note above.
         (digits : (_ptr o _sqlsmallint))
         (nullable : (_ptr o _sqlsmallint))
         -> (status : _sqlreturn)
@@ -332,7 +342,7 @@
         (_sqlsmallint = (buf-length column-buf))
         (column-len : (_ptr o _sqlsmallint))
         (data-type : (_ptr o _sqlsmallint))
-        (size : (_ptr o _sqlulen))
+        (size : (_ptr io _sqlulen) = 0) ;; See SQLLEN note above.
         (digits : (_ptr o _sqlsmallint))
         (nullable : (_ptr o _sqlsmallint))
         -> (status : _sqlreturn)
@@ -356,7 +366,7 @@
         (target-type : _sqlsmallint)
         (_gcpointer = (ptr-add buffer start))
         (_sqllen = (- (bytes-length buffer) start))
-        (len-or-ind : (_ptr o _sqllen))
+        (len-or-ind : (_ptr io _sqllen) = 0) ;; See SQLLEN note above.
         -> (status : _sqlreturn)
         -> (values status len-or-ind)))
 
@@ -430,6 +440,19 @@
                    native-errcode
                    (and (ok-status? status)
                         (buf->string message-buf message-len)))))
+
+(define-odbc SQLGetDiagField/Integer
+  (_fun (handle-type handle rec-number diag-identifier) ::
+        (handle-type : _sqlsmallint)
+        (handle : _sqlhandle)
+        (rec-number : _sqlsmallint)
+        (diag-identifier : _sqlsmallint)
+        (info : (_ptr o _sqlinteger))
+        (info-ptr-len : _sqlsmallint = (ctype-sizeof _sqlinteger))
+        (_strlen-ptr : (_ptr o _sqlsmallint))
+        -> (status : _sqlreturn)
+        -> (and (ok-status? status) info))
+  #:c-id SQLGetDiagField)
 
 (define-odbc SQLEndTran
   (_fun #:blocking? #t
