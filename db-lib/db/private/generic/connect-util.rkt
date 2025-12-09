@@ -327,6 +327,7 @@
     (define/private (discard-connection raw-c)
       (log-db-debug "connection pool: discarding connection @~a"
                     (hash-ref actual=>number raw-c "???"))
+      (hash-remove! actual=>number raw-c)
       (define (handle e)
         (log-db-error "connection pool: error from disconnect: ~s" (exn-message e)))
       (with-handlers ([exn:fail? handle])
@@ -408,6 +409,7 @@
                           [else never-evt])
                     (handle-evt shutdown-evt
                                 (lambda (_evt)
+                                  (log-db-debug "connection pool: shut down idles")
                                   (set! shutdown? #t)
                                   (clear-idle*)))
                     (handle-evt (if (< discard-excess-ms +inf.0)
@@ -430,8 +432,8 @@
              (send mgr call-evt (lambda () (lease* key)))]))
 
     (define/public (release proxy)
-      (let ([raw-c (send proxy release-connection)])
-        (send mgr call (lambda () (release* proxy raw-c "proxy disconnect"))))
+      (define raw-c (send proxy release-connection))
+      (when raw-c (send mgr call (lambda () (release* proxy raw-c "proxy disconnect"))))
       (void))
 
     (define/public (clear-idle)
@@ -474,13 +476,15 @@
     (define/override (connected?) (and connection (send connection connected?)))
 
     (define/public (disconnect)
-      (send pool release this))
+      (let ([pool pool])
+        (when pool (send pool release this))))
 
     (define/public (get-number) number)
 
     (define/public (release-connection)
       (begin0 connection
-        (set! connection #f)))))
+        (set! connection #f)
+        (set! pool #f)))))
 
 ;; ----
 
