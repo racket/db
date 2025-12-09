@@ -234,9 +234,31 @@
 ;; Delay in milliseconds before discarding connections over max-idle limit.
 (define DISCARD-DELAY-MS 50.0)
 
+;; If a pool becomes unreachable, then it (and its manager thread) should be
+;; GC'd. Unfortunately, adding idle timeouts effectively makes the pool
+;; reachable by the scheduler, greatly delaying its collection.
+
+;; Solution: Separate the pool "frontend" from the manager ("backend") so that
+;; the manager can detect when the frontend becomes unreachable. In that case,
+;; the idle list is shut down and the timeouts are disabled. The manager
+;; continues to accept release messages from existing proxies. It is collected
+;; once all proxies are released.
+
 (define connection-pool%
-  (class* object% ()
+  (class object%
+    (init-private manager)
+    (super-new)
+
+    (define/public (lease-evt key block?)
+      (send manager lease-evt key block?))
+    (define/public (clear-idle)
+      (send manager clear-idle))
+    ))
+
+(define connection-pool-manager%
+  (class object%
     (init-private connector              ;; called from manager thread
+                  shutdown-evt
                   max-connections
                   max-idle
                   max-idle-ms)
@@ -244,6 +266,10 @@
 
     ;; ========================================
     ;; methods called in manager thread
+
+    ;; When pool is shut down, no idles are retained and no new leases are
+    ;; accepted, but leased connections are not released.
+    (define shutdown? #f)
 
     (define proxy-counter 1) ;; for debugging
     (define actual-counter 1) ;; for debugging
@@ -290,7 +316,9 @@
         (define (handle-tx-exn e)
           (log-db-debug "connection pool: error from transaction-status @~a: ~e"
                         (hash-ref actual=>number raw-c "???") (exn-message e)))
-        (cond [(with-handlers ([exn:fail? (lambda (e) (begin (handle-tx-exn e) #t))])
+        (cond [shutdown?
+               (discard-connection raw-c)]
+              [(with-handlers ([exn:fail? (lambda (e) (begin (handle-tx-exn e) #t))])
                  (or (not (send raw-c connected?))
                      (send raw-c transaction-status 'connection-pool)))
                (discard-connection raw-c)]
@@ -367,18 +395,29 @@
            (other-evt
             (lambda ()
               (choice-evt
-               (cond [(< (hash-count proxy=>evt) max-connections)
-                      (wrap-evt lease-channel (lambda (p) (p)))]
-                     [else never-evt])
                (handle-evt (apply choice-evt (hash-values proxy=>evt))
                            (lambda (proxy)
                              (release* proxy
                                        (send proxy release-connection)
                                        "release-evt")))
-               (handle-evt (alarm-evt discard-excess-ms #t)
-                           (lambda (_evt) (trim-idle-excess)))
-               (handle-evt (alarm-evt soonest-timeout-ms #t)
-                           (lambda (_evt) (trim-idle-timeouts))))))))
+               (if shutdown?
+                   never-evt
+                   (choice-evt
+                    (cond [(< (hash-count proxy=>evt) max-connections)
+                           (wrap-evt lease-channel (lambda (p) (p)))]
+                          [else never-evt])
+                    (handle-evt shutdown-evt
+                                (lambda (_evt)
+                                  (set! shutdown? #t)
+                                  (clear-idle*)))
+                    (handle-evt (if (< discard-excess-ms +inf.0)
+                                    (alarm-evt discard-excess-ms #t)
+                                    never-evt)
+                                (lambda (_evt) (trim-idle-excess)))
+                    (handle-evt (if (< soonest-timeout-ms +inf.0)
+                                    (alarm-evt soonest-timeout-ms #t)
+                                    never-evt)
+                                (lambda (_evt) (trim-idle-timeouts))))))))))
 
     ;; ========================================
     ;; methods called in client thread
@@ -449,11 +488,18 @@
                          #:max-connections [max-connections +inf.0]
                          #:max-idle-connections [max-idle 10]
                          #:max-idle-seconds [max-idle-s 300])
-  (new connection-pool%
-       (connector connector)
-       (max-connections max-connections)
-       (max-idle max-idle)
-       (max-idle-ms (* 1000.0 max-idle-s))))
+  (define we (make-will-executor))
+  (define manager
+    (new connection-pool-manager%
+         (connector connector)
+         (shutdown-evt (wrap-evt we will-execute))
+         (max-connections max-connections)
+         (max-idle max-idle)
+         (max-idle-ms (* 1000.0 max-idle-s))))
+  (define pool
+    (new connection-pool% (manager manager)))
+  (will-register we pool void)
+  pool)
 
 (define (connection-pool? x)
   (is-a? x connection-pool%))
