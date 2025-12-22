@@ -8,10 +8,9 @@
 
 ;; Run with PLTSTDERR="debug@db"
 ;; Expect the following pattern:
-;;   db: disconnect delayed by OS thread
-;;   (pause)
-;;   db: result = ...
-;;   db: continuing delayed disconnect
+;;   db: disconnect/stage2 in worker thread
+;;   db: disconnect/stage3 skipped
+;;   db: interrupted: "sqlite3: disconnected during operation...."
 
 (unless (os-thread-enabled?)
   (printf "ffi/unsafe/os-thread: not supported\n")
@@ -38,6 +37,9 @@
        (custodian-shutdown-all cust))))
 
   (sync sema)
-  (let ([result (query-value c pst)]) ;; eval even if no logging
-    (log-db-debug "result = ~s" result))
+  (with-handlers ([exn:fail?
+                   (lambda (e)
+                     (log-db-debug "interrupted: ~e" (exn-message e)))])
+    (define result (query-value c pst))
+    (log-db-debug "not interrupted, result = ~e" result))
   (void))
