@@ -53,12 +53,12 @@
       (5 "five")
       (6 "half a dozen")))
 
-  (define (connect-and-setup)
+  (define (connect-and-setup [setup? #t])
     (when (FLAG 'sleep-before-connect)
       ;; Oracle ODBC tests spuriously fail if connections are made too quickly
       (sleep 0.02))
     (let [(cx (connect-for-test))]
-      (when (FLAG 'can-temp-table)
+      (when (and setup? (FLAG 'can-temp-table))
         (query-exec cx
           "create temporary table the_numbers (N integer primary key, descr varchar(80))")
         (for-each (lambda (p)
@@ -74,8 +74,8 @@
          (andmap (lambda (xb) (member xb a)) b)
          #t))
 
-  (define (call-with-connection f)
-    (let [(c (connect-and-setup))]
+  (define (call-with-connection f [setup? #t])
+    (let [(c (connect-and-setup setup?))]
       (dynamic-wind void
                     (lambda () (f c))
                     (lambda () (disconnect c)))))
@@ -87,10 +87,13 @@
       (else (error 'sql "unsupported dbsystem: ~e" dbsys))))
 
   (define (select-val str)
-    (cond [(FLAG 'isora)
+    (cond [(not str) #f]
+          [(FLAG 'isora)
            (sql (string-append "select " str " from DUAL"))]
           [(FLAG 'isdb2)
            (sql (string-append "values (" str ")"))]
+          [(FLAG 'isfbd)
+           (sql (string-append "select " str " from RDB$DATABASE"))]
           [else (sql (string-append "select " str))]))
 
   ;; ----------------------------------------
@@ -101,6 +104,7 @@
   ;;   impl type  = 'wire | 'ffi
   ;;   dialect    = 'ispg | 'ismy | 'issl
   ;;              | 'isdb2 | 'isora (oracle) | 'ismss (MS SQL Server)
+  ;;              | 'isfbd (Firebird)
 
   ;; Other flags (set in data-source extensions under db:test key):
   ;;   'async = ODBC connection allows async execution (ie, via places)
@@ -108,12 +112,19 @@
   ;;   'concurrent = ok to test many concurrent connections
   ;;   'sleep-before-connect = ad hoc rate-limiting for connections
   ;;   'connect-first-ssl = add { #:ssl 'yes } to first connection attempt
-  ;;                        (eg to warm up MySQL 8 sha2 auth cache)
+  ;;       - used to warm up MySQL 8 sha2 auth cache
   ;;   'keep-unused-connection = keep an unused connection open throughout tests
-  ;;                             (eg DB2 time goes from 150s to 0.6s)
+  ;;       - avoids reconnect overhead; DB2 time goes from 150s to 0.6s
   ;;   'place, 'os-thread = use-place mode (for ffi-based connection))
-  ;;   'no-interleave = connection cannot interleave queries (eg, MS SQL Server w/o MARS)
-  ;;   'no-time, 'no-date = skip date, time tests (eg, Oracle)
+  ;;   'can-temp-table = driver supports "CREATE TEMPORARY TABLE"
+  ;;       - use temp table for the_numbers, for type roundtrip tests
+  ;;   'const-table = do not modify the_numbers test table (not temporary)
+  ;;       - test table is persistent, not temp per-test
+  ;;   'rt-table = use persistent table for type roundtrips (if cannot use temp)
+  ;;       - always set unless DSN has 'no-rt-table flag
+  ;;   'no-interleave = connection cannot interleave queries
+  ;;       - eg, MS SQL Server w/o MARS
+  ;;   'no-{time,date,text} = skip specified type tests
 
   (define allflags (cons dbsys dbflags))
   (define (add-flag! . fs) (set! allflags (append fs allflags)))
@@ -122,7 +133,8 @@
   (define (ORFLAGS . xs) (ormap FLAG xs))
   (define (ANDFLAGS . xs) (andmap FLAG xs))
 
-  ;; -- Derived flags --
+  ;; ----------------------------------------
+  ;; Derived flags
 
   (case dbsys
     [(postgresql) (add-flag! 'ispg 'wire 'concurrent 'async)]
@@ -131,11 +143,25 @@
     [(odbc)       (add-flag! 'ffi)]
     [(cassandra)  (error 'config "this test suite does not support Cassandra")])
 
-  ;; 'can-temp-table = can use "CREATE TEMP TABLE"; make temp "the_numbers" on connect
-  ;; 'const-table = table "the_numbers" is created below; don't modify in query tests!
-  (if (ORFLAGS 'ispg 'ismy 'issl)
-      (add-flag! 'can-temp-table)
-      (add-flag! 'const-table))
+  (cond [(ORFLAGS 'ispg 'ismy 'issl)
+         (add-flag! 'can-temp-table)]
+        [else
+         (add-flag! 'const-table)])
+
+  (when (FLAG 'isora)
+    (add-flag! 'no-date 'no-time)
+    ;; Tests sometimes spuriously fail if connections are made too quickly;
+    ;; use sleep-before-connect to work around.
+    (add-flag! 'sleep-before-connect))
+
+  (when (FLAG 'isdb2)
+    ;; Note: tests with keep-unused connection <1s; without ~150s
+    (add-flag! 'keep-unused-connection))
+
+  (unless (FLAG 'no-rt-table)
+    (add-flag! 'rt-table))
+
+  ;; ----------------------------------------
 
   (define dbsystem
     (with-handlers ([exn:fail?
@@ -147,7 +173,7 @@
       (define c (connect-first-time (FLAG 'connect-first-ssl)))
       (when (FLAG 'const-table)
         ;; table-exists? doesn't work on SQLServer
-        (cond [(ORFLAGS 'ismss) ;; table-exists? doesn't work
+        (cond [(ORFLAGS 'ismss 'isfbd) ;; table-exists? doesn't work
                (with-handlers ([exn:fail? void])
                  (query-exec c "drop table the_numbers"))]
               [else

@@ -26,41 +26,44 @@
 
  ;; Oracle ODBC
  ;; Note: needs LD_LIBRARY_PATH to point to appropriate ODBC libs.
- ;; Tests sometimes spuriously fail if connections are made to
- ;; quickly; use sleep-before-connect to work around.
- (ora11 (db odbc-driver
-            ("DRIVER=Oracle 11g ODBC driver;DBQ=localhost:1521/FREE;UID=system;PWD=orapwd"
-             #:quirks (no-c-bigint))
-            ((db:test (isora sleep-before-connect no-date no-time)))))
- (ora19 (db odbc-driver
-            ("DRIVER=Oracle 19 ODBC driver;DBQ=localhost:1521/FREE;UID=system;PWD=orapwd"
-             #:quirks (no-c-bigint))
-            ((db:test (isora sleep-before-connect no-date no-time)))))
+ ;; Note: needs NLS_LANG=AMERICAN_AMERICA.AL32UTF8 (or similar); see ODBC varchar tests
  (ora21 (db odbc-driver
             ("DRIVER=Oracle 21 ODBC driver;DBQ=localhost:1521/FREE;UID=system;PWD=orapwd"
-             #:quirks (no-c-bigint))
-            ((db:test (isora sleep-before-connect no-date no-time)))))
+             #:quirks (no-c-bigint no-get-c-binary))
+            ((db:test (isora)))))
+ (ora23 (db odbc-driver
+            ("DRIVER=Oracle 23 ODBC driver;DBQ=localhost:1521/FREE;UID=system;PWD=orapwd"
+             #:quirks (no-c-bigint no-get-c-binary))
+            ((db:test (isora)))))
 
  ;; DB2 ODBC
- ;; Note: needs LD_LIBRARY_PATH to point to appropriate ODBC libs.
- ;; Note: tests with keep-unused connection <1s; without ~150s
  (db2 (db odbc-driver
           ("DRIVER=Db2;Database=testdb;Hostname=localhost;Port=50000;UID=db2inst1;PWD=db2pwd"
            #:quirks (no-c-numeric))
-          ((db:test (isdb2 keep-unused-connection)))))
+          ((db:test (isdb2)))))
 
  ;; MS SQL Server ODBC via FreeTDS
  (mssf (db odbc-driver
-           ;; Add "MARS_Connection=yes" to support multiple simultaneous open
-           ;; statements, but it causes a ~15x (!!) slowdown for the test suite.
+           ;; Add "MARS_Connection=yes" to support multiple simultaneous open statements,
+           ;; but one interleaving test still fails unless 'no-interleave flag set.
            ("DRIVER=FreeTDS;Server=localhost;Port=1433;UID=sa;PWD=abcdEFGH89!"
-            ;; Unlike MS drivers on win32, FreeTDS seems to need no-c-numeric.
-            #:quirks (no-c-numeric))
-           ((db:test (ismss no-interleave)))))
+            #:quirks (no-c-numeric string-longvarchar-always bytes-longvarbinary-always))
+           ((db:test (ismss freetds no-interleave)))))
 
  ;; MS SQL Server ODBC
- (mssn (db odbc-driver
-           ("DRIVER=ODBC Driver 17 for SQL Server;Server=localhost;Port=1433;UID=sa;PWD=abcdEFGH89!"
-            #:quirks ())
-           ((db:test (ismss no-interleave)))))
+ ;; https://learn.microsoft.com/en-us/sql/connect/odbc/dsn-connection-string-attribute
+ (mss17 (db odbc-driver
+            ("DRIVER=ODBC Driver 17 for SQL Server;Server=localhost;Port=1433;UID=sa;PWD=abcdEFGH89!;Encrypt=no;MARS_Connection=yes"
+             #:quirks ())
+            ((db:test (ismss mss17)))))
+ (mss18 (db odbc-driver
+            ("DRIVER=ODBC Driver 18 for SQL Server;Server=localhost;Port=1433;UID=sa;PWD=abcdEFGH89!;Encrypt=no;MARS_Connection=yes"
+             #:quirks ())
+            ((db:test (ismss mss18)))))
+
+ ;; Firebird ODBC
+ (fbd (db odbc-driver
+          ("DRIVER=Firebird;UID=rkt;PWD=rktpwd;DBNAME=localhost/3050:/var/lib/firebird/data/testdb.fdb"
+           #:quirks () #:character-mode utf-8)
+          ((db:test (isfbd)))))
  )
