@@ -38,6 +38,7 @@
 (define SQL_DATA_AT_EXEC         -2)
 (define SQL_NO_TOTAL             -4)
 
+(define SQL_ALL_TYPES             0)
 (define SQL_UNKNOWN_TYPE          0)
 (define SQL_CHAR                  1)
 (define SQL_NUMERIC               2)

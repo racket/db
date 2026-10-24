@@ -214,6 +214,19 @@
 
     ;; ----------------------------------------
 
+    (define/public (get-type-info)
+      (define who 'get-type-info)
+      (A #:db db
+         (define worker? #f)
+         (define-values (_status stmt) (SQLAllocHandle SQL_HANDLE_STMT db))
+         (SQLGetTypeInfo stmt SQL_ALL_TYPES)
+         (define result-dvecs (yes-v (-describe-columns who stmt)))
+         (define result-typeids (take (map field-dvec->typeid result-dvecs) 3))
+         (begin0 (get-rows 'get-type-info worker? stmt result-typeids #f +inf.0)
+           (SQLFreeHandle SQL_HANDLE_STMT stmt))))
+
+    ;; ----------------------------------------
+
     (define/public (get-dbsystem) dbsystem)
     (define/override (connected?) (and -db #t))
 

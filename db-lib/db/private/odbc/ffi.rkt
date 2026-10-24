@@ -492,3 +492,8 @@
         (_bytes = #f)
         (_sqlsmallint = 0)
         -> _sqlreturn))
+
+(define-odbc+W SQLGetTypeInfo
+  (_fun [handle : _sqlhstmt]
+        [typeid : _sqlsmallint]
+        -> _sqlreturn))
