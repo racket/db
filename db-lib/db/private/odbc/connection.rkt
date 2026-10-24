@@ -185,6 +185,10 @@
     (define quirk-c-bigint-ok?  (not (memq 'no-c-bigint quirks)))
     (define quirk-c-numeric-ok? (not (memq 'no-c-numeric quirks)))
     (define quirk-fix-sqllen?   (not (memq 'no-fix-sqllen quirks)))
+    (define quirk-char-prec?    (and (memq 'char-precision quirks) #t))
+    (define quirk-long-chars    (cond [(memq 'string-longvarchar-always quirks) 0]
+                                      [(memq 'string-longvarchar-256 quirks) 256]
+                                      [else #f]))
 
     (define use-describe-param?
       (and strict-parameter-types?
@@ -390,14 +394,29 @@
       (cond [(or (real? param) (pair? param))
              (do-load-number param typeid)]
             [(string? param)
+             ;; Most drivers ignore SQLBindParameter's ColumnSize or accept 0
+             ;; (SQL_SS_LENGTH_UNLIMITED), but some require a nonzero value,
+             ;; and some limit that value to 255.
+             (define (long-param?)
+               (and quirk-long-chars
+                    (>= (string-length param) quirk-long-chars)))
              (case char-mode
                ((wchar)
-                (bind SQL_C_WCHAR (typeid-or SQL_WVARCHAR) (string->wbuf param)))
+                (define buf (string->wbuf param))
+                (define colsize
+                  (if quirk-char-prec? (max 1 (quotient (bytes-length buf) WCHAR-SIZE)) 0))
+                (define typeid (typeid-or (if (long-param?) SQL_WLONGVARCHAR SQL_WVARCHAR)))
+                (bind SQL_C_WCHAR typeid buf colsize))
                ((utf-8)
-                (bind SQL_C_CHAR (typeid-or SQL_VARCHAR) (string->bytes/utf-8 param)))
+                (define buf (string->bytes/utf-8 param))
+                (define colsize (if quirk-char-prec? (max 1 (bytes-length buf)) 0))
+                (define typeid (typeid-or (if (long-param?) SQL_LONGVARCHAR SQL_VARCHAR)))
+                (bind SQL_C_CHAR typeid buf colsize))
                ((latin-1)
-                (bind SQL_C_CHAR (typeid-or SQL_VARCHAR)
-                      (string->bytes/latin-1 param (char->integer #\?)))))]
+                (define buf (string->bytes/latin-1 param (char->integer #\?)))
+                (define colsize (if quirk-char-prec? (max 1 (bytes-length buf)) 0))
+                (define typeid (typeid-or (if (long-param?) SQL_LONGVARCHAR SQL_VARCHAR)))
+                (bind SQL_C_CHAR typeid buf colsize)))]
             [(bytes? param)
              (bind SQL_C_BINARY (typeid-or SQL_BINARY) param (bytes-length param))]
             [(boolean? param)
