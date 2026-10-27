@@ -3,7 +3,7 @@
 print_usage() {
     cat <<EOF
 Usage: docker-util.sh [-w] {stop | <dbname>} [<dockerimage>]
-with <dbname> in: pg pg-scram my mariadb oracle db2 mssql cassandra
+with <dbname> in: pg pg-scram my mariadb oracle db2 mssql firebird cassandra
 and optional <dockerimage> as in postgres, postgres:12, mariadb:latest, etc.
 May need to be run with 'sudo' depending on docker configuration.
 Run 'docket-util.sh -h' for extended help.
@@ -174,6 +174,18 @@ start_cassandra() {
            "$DBIMAGE"
 }
 
+start_firebird() {
+    DBIMAGE="${DBIMAGE:-firebirdsql/firebird:4}"
+    need_image "$DBIMAGE"
+    "$DOCKER" run $COMMON_OPTS --publish 3050:3050 \
+              -e FIREBIRD_ROOT_PASSWORD=fbrootpwd \
+              -e FIREBIRD_USER=rkt \
+              -e FIREBIRD_PASSWORD=rktpwd \
+              -e FIREBIRD_DATABASE=testdb.fdb \
+              -e FIREBIRD_DATABASE_DEFAULT_CHARSET=UTF8 \
+              "$DBIMAGE"
+}
+
 # ------------------------------------------------------------
 
 need_image() {
@@ -278,6 +290,9 @@ case "$DB" in
         ;;
     cassandra)
         start_cassandra
+        ;;
+    firebird)
+        start_firebird
         ;;
     *)
         usage_exit
