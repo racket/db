@@ -1,11 +1,13 @@
 #lang racket/base
 (require racket/class
          racket/match
+         racket/math
          racket/flonum
          json
          db/private/generic/interfaces
          db/private/generic/common
          db/private/generic/sql-data
+         db/private/generic/sql-convert
          "../../util/private/geometry.rkt"
          (submod "../../util/mysql.rkt" private)
          (only-in "message.rkt" length-code->bytes field-dvec->typeid field-dvec->flags))
@@ -109,10 +111,26 @@
          (cons 'var-string (string->bytes/utf-8 param))]
         [(bytes? param)
          (cons 'blob param)]
+        [(int32? param)
+         (cons 'long param)]
+        [(uint32? param)
+         (cons 'ulong param)]
         [(int64? param)
          (cons 'longlong param)]
+        [(uint64? param)
+         (cons 'ulonglong param)]
         [(rational? param)
-         (cons 'double param)]
+         (define (dec s) (cons 'newdecimal (string->bytes/latin-1 s)))
+         (cond [(exact-integer? param) (dec (number->string param))]
+               [(and (exact? param) (exact->scaled-integer param #f))
+                => (lambda (ma+scale)
+                     (match-define (cons ma scale) ma+scale)
+                     ;; MySQL (v9.7) max prec is 65 digits, max scale is 30 digits
+                     (cond [(and (<= (order-of-magnitude (max 1 (abs ma))) 65)
+                                 (<= 0 scale 30))
+                            (dec (scaled-integer->decimal-string ma scale))]
+                           [else (cons 'double param)]))]
+               [else (cons 'double param)])]
         [(or (sql-time? param) (sql-day-time-interval? param))
          (cons 'time param)]
         [(sql-bits? param)

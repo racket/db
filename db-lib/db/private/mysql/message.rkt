@@ -1,6 +1,7 @@
 #|
 Based on protocol documentation here:
-  http://forge.mysql.com/wiki/MySQL_Internals_ClientServer_Protocol
+- https://dev.mysql.com/doc/dev/mysql-server/latest/PAGE_PROTOCOL.html
+- https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
 |#
 
 #lang racket/base
@@ -820,9 +821,11 @@ computed string on the server can be. See also:
      1 ;; for space in null bitmap
      (case type
        [(null) 0]
-       [(var-string blob json vector geometry bit)
+       [(var-string blob json vector geometry bit newdecimal)
         (length-coded-length (bytes-length param))]
-       [(longlong double)
+       [(long ulong)
+        4]
+       [(longlong ulonglong double)
         8]
        [(date)
         (length-coded-length 4)]
@@ -841,10 +844,18 @@ computed string on the server can be. See also:
      ;; param is bytes or #f, where #f means sent as long data (don't send now)
      (when param (io:write-length-coded-bytes out param))]
     ;; Fixed-size cases
+    [(long)
+     (io:write-le-int32 out param #t)]
+    [(ulong)
+     (io:write-le-int32 out param #f)]
     [(longlong)
      (io:write-le-int64 out param #t)]
+    [(ulonglong)
+     (io:write-le-int64 out param #f)]
     [(double)
      (io:write-bytes out (real->floating-point-bytes (exact->inexact param) 8))]
+    [(newdecimal)
+     (io:write-length-coded-bytes out param)]
     [(date)
      (let ([bs (bytes-append (integer->integer-bytes (sql-date-year param) 2 #t #f)
                              (bytes (sql-date-month param))
@@ -1009,7 +1020,10 @@ computed string on the server can be. See also:
     (#xFE . string)
     (#xFF . geometry)))
 (define types/encoding
-  (invert-alist types/decoding))
+  ;; In execute message, param type is 16 bits, MSB set for unsigned.
+  `((ulong     . #x8003)
+    (ulonglong . #x8008)
+    ,@(invert-alist types/decoding)))
 
 (define field-flags/decoding
   '((#x001 . not-null)
