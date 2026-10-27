@@ -382,8 +382,15 @@
                       (do-load-number param SQL_INTEGER)]
                      [(int64? param)
                       (do-load-number param SQL_BIGINT)]
-                     [else ;; real
-                      (do-load-number param SQL_DOUBLE)])]
+                     [(exact? param)
+                      (define MAXSCALE 12)
+                      (let loop ([x param] [scale 0])
+                        (cond [(exact-integer? x)
+                               (do-load-number (cons x scale) SQL_NUMERIC)]
+                              [(< scale MAXSCALE)
+                               (loop (* x 10) (add1 scale))]
+                              [else (do-load-number param SQL_DOUBLE)]))]
+                     [else (do-load-number param SQL_DOUBLE)])]
               ;; -- Otherwise error --
               [else (raise
                      (lambda ()
