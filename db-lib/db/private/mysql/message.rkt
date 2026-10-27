@@ -1007,6 +1007,9 @@ computed string on the server can be. See also:
     (#x0E . newdate)
     (#x0F . varchar)
     (#x10 . bit)
+    (#x11 . timestamp2) ;; ??
+    (#x12 . datetime2)  ;; ??
+    (#x13 . time2)      ;; ??
     (#xF2 . vector)
     (#xF5 . json)
     (#xF6 . newdecimal)
