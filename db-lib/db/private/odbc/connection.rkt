@@ -189,6 +189,10 @@
     (define quirk-long-chars    (cond [(memq 'string-longvarchar-always quirks) 0]
                                       [(memq 'string-longvarchar-256 quirks) 256]
                                       [else #f]))
+    (define quirk-bytes-prec?   (and (memq 'binary-precision quirks) #t))
+    (define quirk-long-bytes    (cond [(memq 'bytes-longvarbinary-always quirks) 0]
+                                      [(memq 'bytes-longvarbinary-256 quirks) 256]
+                                      [else #f]))
 
     (define use-describe-param?
       (and strict-parameter-types?
@@ -425,7 +429,10 @@
                 (define typeid (typeid-or (if (long-param?) SQL_LONGVARCHAR SQL_VARCHAR)))
                 (bind SQL_C_CHAR typeid buf colsize)))]
             [(bytes? param)
-             (bind SQL_C_BINARY (typeid-or SQL_BINARY) param (bytes-length param))]
+             (define long? (and quirk-long-bytes (>= (bytes-length param) quirk-long-bytes)))
+             (define colsize (if quirk-bytes-prec? (max 1 (bytes-length param)) 0))
+             (define typeid (typeid-or (if long? SQL_LONGVARBINARY SQL_VARBINARY)))
+             (bind SQL_C_BINARY typeid param colsize)]
             [(boolean? param)
              (bind SQL_C_LONG SQL_BIT
                    (integer->integer-bytes (if param 1 0) sizeof-SQLLONG #t))]
