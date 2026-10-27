@@ -419,6 +419,8 @@ jsonb = version:byte byte*
          [NUMERIC_POS #x0000]
          [NUMERIC_NEG #x4000]
          [NUMERIC_NAN #xC000]
+         [NUMERIC_+INF #xD000]
+         [NUMERIC_-INF #xF000]
          [digits (get-int2 0)]
          [weight (get-int2 2)]
          [sign   (get-int2 4 #f)]
@@ -435,6 +437,10 @@ jsonb = version:byte byte*
            abs-number]
           [(= sign NUMERIC_NEG)
            (- abs-number)]
+          [(= sign NUMERIC_+INF)
+           +inf.0]
+          [(= sign NUMERIC_-INF)
+           -inf.0]
           [(= sign NUMERIC_NAN)
            +nan.0]
           [else (error/internal 'recv-numeric "bad sign: ~e" sign)])))
@@ -648,7 +654,6 @@ jsonb = version:byte byte*
   (define NBASE_MAGN 4)
   (define NUMERIC_POS #x0000)
   (define NUMERIC_NEG #x4000)
-  (define NUMERIC_NAN #xC000)
   (define (mkint2 n [signed? #t])
     (integer->integer-bytes n 2 signed? #t))
   (define (nat->bigits n)
@@ -660,7 +665,8 @@ jsonb = version:byte byte*
     (let ([sign-part (if neg? NUMERIC_NEG NUMERIC_POS)])
       (apply bytes-append
              (map mkint2 (list* bigit-count weight sign-part dscale bigits)))))
-
+  (define (special sign)
+    (bytes-append (mkint2 0) (mkint2 0) (mkint2 sign #f) (mkint2 0)))
   (cond [(rational? x)
          (let* ([orig-x x]
                 [neg? (negative? x)]
@@ -681,14 +687,10 @@ jsonb = version:byte byte*
                   [weight (- bigit-count (quotient E* NBASE_MAGN) 1)]
                   [dscale (max 0 E)])
              (make-numeric bigit-count weight neg? dscale bigits)))]
-        [(eqv? x +nan.0)
-         (let ([NUMERIC_NAN #xC000])
-           (bytes-append (mkint2 0)
-                         (mkint2 0)
-                         (mkint2 NUMERIC_NAN #f)
-                         (mkint2 0)))]
-        [else
-         (send-error f "numeric" x #:contract '(or/c rational? +nan.0))]))
+        [(eqv? x +inf.0) (special #xD000)]
+        [(eqv? x -inf.0) (special #xF000)]
+        [(eqv? x +nan.0) (special #xC000)]
+        [else (send-error f "numeric" x #:contract 'real?)]))
 
 (define ((send-array elttype writer) f x0)
   (define x
