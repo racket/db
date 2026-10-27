@@ -132,7 +132,6 @@
    (12 varchar        string?)
    (91 date           sql-date?)
    (92 time           sql-time?)
-   (-154 time2        sql-time?)
    (93 timestamp      sql-timestamp?)
    (-1 longvarchar    string?)
    (-2 binary         bytes?)
@@ -141,9 +140,17 @@
    (-5 bigint         int64?)
    (-6 tinyint        int8?)
    (-7 bit1           boolean?)
-   (-8 wcharacter     string?)
+   (-8 wchar          string?)
    (-9 wvarchar       string?)
-   (-10 wlongvarchar  string?)]
+   (-10 wlongvarchar  string?)
+   ;; extensions:
+   (-154 time2        sql-time?)
+   (-95  graphic      string?)
+   (-96  vargraphic   string?)
+   (-97  longvargraphic string?)
+   (-98  blob         bytes?)
+   (-99  clob         string?)
+   (-350 dbclob       string?)]
   [(2  numeric        check-numeric)
    (3  decimal        check-numeric)])
 
@@ -196,10 +203,17 @@
 
   ;; SQL Server extensions
   (-154 time 0)
-  )
+
+  ;; DB2 extensions
+  (-95  graphic        0)
+  (-96  vargraphic     0)
+  (-97  longvargraphic 0)
+  (-98  blob   0)
+  (-99  clob   0)
+  (-350 dbclob 0))
 
 (define (supported-typeid? x)
   (case x
     ((0 1 2 3 4 5 6 7 8 9 12 91 92 93 -1 -2 -3 -4 -5 -6 -7 -8 -9 -10) #t)
-    ((-154) #t)
+    ((-154 -95 -96 -97 -98 -99 -350) #t)
     (else #f)))

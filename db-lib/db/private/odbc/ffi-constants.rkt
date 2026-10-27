@@ -72,6 +72,13 @@
 (define SQL_SS_TIME2           -154)
 (define SQL_C_SS_TIME2       #x4000)
 
+(define SQL_DB2_GRAPHIC         -95)
+(define SQL_DB2_VARGRAPHIC      -96)
+(define SQL_DB2_LONGVARGRAPHIC  -97)
+(define SQL_DB2_BLOB            -98)
+(define SQL_DB2_CLOB            -99)
+(define SQL_DB2_DBCLOB         -350)
+
 (define SQL_CODE_YEAR             1)
 (define SQL_CODE_MONTH            2)
 (define SQL_CODE_DAY              3)

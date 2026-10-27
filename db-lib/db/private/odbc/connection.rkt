@@ -742,14 +742,25 @@
              (match (get-int-list '(2 2 2) SQL_C_TYPE_TIME)
                [(list h m s) (sql-time h m s 0 #f)]
                [(? sql-null?) sql-null])]
-            [(= typeid SQL_SS_TIME2)
-             (match (get-int-list '(2 2 2 2 4) SQL_C_BINARY)
-               [(list h m s _pad ns) (sql-time h m s ns #f)]
-               [(? sql-null?) sql-null])]
             [(= typeid SQL_TYPE_TIMESTAMP)
              (match (get-int-list '(2 2 2  2 2 2 4) SQL_C_TYPE_TIMESTAMP)
                [(list yy mm dd  h m s ns) (sql-timestamp yy mm dd h m s ns #f)]
                [(? sql-null?) sql-null])]
+            ;; ----
+            [(= typeid SQL_SS_TIME2)
+             (match (get-int-list '(2 2 2 2 4) SQL_C_BINARY)
+               [(list h m s _pad ns) (sql-time h m s ns #f)]
+               [(? sql-null?) sql-null])]
+            [(or (= typeid SQL_DB2_GRAPHIC)
+                 (= typeid SQL_DB2_VARGRAPHIC)
+                 (= typeid SQL_DB2_LONGVARGRAPHIC)
+                 (= typeid SQL_DB2_DBCLOB))
+             (get-string)]
+            [(= typeid SQL_DB2_CLOB)
+             (get-string)]
+            [(= typeid SQL_DB2_BLOB)
+             (get-bytes/quirky)]
+            ;; ----
             [else (get-string)]))
 
     (define/public (prepare fsym stmt close-on-exec?)
