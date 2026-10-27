@@ -193,6 +193,7 @@
     (define quirk-long-bytes    (cond [(memq 'bytes-longvarbinary-always quirks) 0]
                                       [(memq 'bytes-longvarbinary-256 quirks) 256]
                                       [else #f]))
+    (define quirk-get-c-binary? (not (memq 'no-get-c-binary quirks)))
 
     (define use-describe-param?
       (and strict-parameter-types?
@@ -581,21 +582,15 @@
                       [else (error who "internal error: get-int-list bad size: ~s" size)])
                     (parse-int-list buf (+ start size) (cdr sizes))))
             null))
-      (define (get-varbuf ctype ntlen convert)
-        ;; ntlen is null-terminator length (1 for char data, 0 for binary, ??? for wchar)
-
-        ;; null-terminator, there are 3 modes: binary, wchar=2, wchar=4
-        ;; - binary: all done in racket, no worries
-        ;; - wchar=4: passed to make_sized_char_string, so must explicitly leave ntlen \0 bytes
-        ;; - wchar=2: passed to utf16_to_ucs4 (which must add \0 space, see ffi.rkt)
-        ;; So for simplicity, add ntlen \0 bytes to buf (but do *not* add to data len)
+      (define (get-varbuf ctype ntlen convert [initbuf #f])
+        ;; ntlen is null-terminator length (1 for char data, 0 for binary, WCHAR-SIZE for wchar)
 
         ;; ODBC docs say len-or-ind is character count for char data, but wrong:
         ;; always a byte count.
 
         ;; It would be nice if we could call w/ empty buffer, get total length, then
         ;; call again with appropriate buffer. But can't use NULL (works on unixodbc, but
-        ;; ODBC spec says illegal and Win32 ODBC rejects). Seems unsafe to use 0-length
+        ;; ODBC spec says illegal and Win32 ODBC rejects). Might be safe to use 0-length
         ;; buffer (spec is unclear, DB2 docs say len>0...???).
 
         ;; loop : Bytes Nat (Listof Bytes) -> Any
@@ -611,31 +606,24 @@
           (cond [(= len-or-ind SQL_NULL_DATA) sql-null]
                 [(= len-or-ind SQL_NO_TOTAL)
                  ;; Didn't fit in buf, and we have no idea how much more there is.
-                 (let* ([data-end (- (bytes-length buf) ntlen)])
-                   (loop buf 0 (cons (subbytes buf 0 data-end) rchunks)))]
+                 (define data-end (- (bytes-length buf) ntlen))
+                 (loop buf 0 (cons (subbytes buf 0 data-end) rchunks))]
                 [else
-                 (let ([len (+ start len-or-ind)])
-                   (cond [(<= 0 len (- (bytes-length buf) ntlen))
-                          ;; fit in buf
-                          (cond [(pair? rchunks)
-                                 ;; add ntlen bytes for null-terminator...
-                                 (let* ([chunk (subbytes buf 0 (+ len ntlen))]
-                                        [chunks (append (reverse rchunks) (list chunk))]
-                                        [complete (apply bytes-append chunks)])
-                                   ;; ... but compensate so len is correct
-                                   (convert complete
-                                            (- (bytes-length complete) ntlen)
-                                            #t))]
-                                [else
-                                 ;; buf already null-terminated, len correct
-                                 (convert buf len #f)])]
-                         [else
-                          ;; didn't fit in buf, but we know how much more there is
-                          (let* ([len-got (- (bytes-length buf) ntlen)]
-                                 [newbuf (make-bytes (+ len ntlen))])
-                            (bytes-copy! newbuf 0 buf start len-got)
-                            (loop newbuf len-got rchunks))]))]))
-        (loop scratchbuf 0 null))
+                 (define len (+ start len-or-ind))
+                 (cond [(<= 0 len (- (bytes-length buf) ntlen)) ;; fit in buf
+                        (cond [(pair? rchunks)
+                               (define chunk (subbytes buf 0 len))
+                               (define chunks (reverse (cons chunk rchunks)))
+                               (define complete (apply bytes-append chunks))
+                               (convert complete (bytes-length complete) #t)]
+                              [else (convert buf len #f)])]
+                       [else
+                        ;; didn't fit in buf, but we know how much more there is
+                        (define len-got (max 0 (- (bytes-length buf) ntlen)))
+                        (define newbuf (make-bytes (+ len ntlen)))
+                        (bytes-copy! newbuf 0 buf start len-got)
+                        (loop newbuf len-got rchunks)])]))
+        (loop (or initbuf scratchbuf) 0 null))
 
       (define (get-string/latin-1)
         (get-varbuf SQL_C_CHAR 1
@@ -654,12 +642,42 @@
           ((latin-1)
            (get-string/latin-1))))
       (define (get-bytes)
-        (get-varbuf SQL_C_BINARY 0
-                    (lambda (buf len fresh?)
-                      ;; avoid copying long data twice:
-                      (if (and fresh? (= len (bytes-length buf)))
-                          buf
-                          (subbytes buf 0 len)))))
+        ;; Oracle ODBC driver 21 discards one byte per incomplete SQLGetData
+        ;; because it gets confused about NUL termination (which SQL_C_BINARY
+        ;; doesn't use). So offer quirk to fetch binary data via hex string.
+        (cond [quirk-get-c-binary?
+               (get-varbuf SQL_C_BINARY 0
+                           (lambda (buf len fresh?)
+                             ;; avoid copying long data twice:
+                             (cond [(and fresh? (= len (bytes-length buf))) buf]
+                                   [else (subbytes buf 0 len)])))]
+              [else
+               ;; Oracle appears to have a separate bug retriving BINARY data
+               ;; via SQL_C_CHAR: SQLGetData advances by BufferLength bytes in
+               ;; the original data, rather than writing BufferLength bytes
+               ;; worth of hex codes. Does not appear to write past the end of
+               ;; the provided buffer, though. Workaround by using zero-length
+               ;; buffer for first call, to get length.
+               ;; FIXME: if zero-length buffer works, maybe use in general?
+               (define (unhex-buffer buf buflen fresh?)
+                 (define (unhex b)
+                   (cond [(<= (char->integer #\0) b (char->integer #\9))
+                          (- b (char->integer #\0))]
+                         [(<= (char->integer #\A) b (char->integer #\F))
+                          (+ 10 (- b (char->integer #\A)))]
+                         [(<= (char->integer #\a) b (char->integer #\f))
+                          (+ 10 (- b (char->integer #\a)))]
+                         [else (raise (lambda () (error 'unhex "bad hex digit: ~s" b)))]))
+                 (define outlen (quotient buflen 2))
+                 (define outbuf (make-bytes outlen))
+                 (for ([outi (in-range 0 outlen 1)]
+                       [bufi (in-range 0 buflen 2)])
+                   (define hi (unhex (bytes-ref buf (+ bufi 0))))
+                   (define lo (unhex (bytes-ref buf (+ bufi 1))))
+                   (bytes-set! outbuf outi
+                               (+ (arithmetic-shift hi 4) lo)))
+                 outbuf)
+               (get-varbuf SQL_C_CHAR 1 unhex-buffer (make-bytes 0))]))
       (define (get-col-fail what v)
         (raise (lambda () (error who "internal error: cannot get ~s from ~e" what v))))
 
