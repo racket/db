@@ -641,43 +641,47 @@
            (get-string/utf-8))
           ((latin-1)
            (get-string/latin-1))))
-      (define (get-bytes)
+      (define (get-bytes/binary)
+        (get-varbuf SQL_C_BINARY 0
+                    (lambda (buf len fresh?)
+                      ;; avoid copying long data twice:
+                      (cond [(and fresh? (= len (bytes-length buf))) buf]
+                            [else (subbytes buf 0 len)]))))
+      (define (get-bytes/char)
+        ;; Oracle appears to have a separate bug retriving BINARY data
+        ;; via SQL_C_CHAR: SQLGetData advances by BufferLength bytes in
+        ;; the original data, rather than writing BufferLength bytes
+        ;; worth of hex codes. Does not appear to write past the end of
+        ;; the provided buffer, though. Workaround by using zero-length
+        ;; buffer for first call, to get length.
+        ;; FIXME: if zero-length buffer works, maybe use in general?
+        (define (unhex-buffer buf buflen fresh?)
+          (define (unhex b)
+            (cond [(<= (char->integer #\0) b (char->integer #\9))
+                   (- b (char->integer #\0))]
+                  [(<= (char->integer #\A) b (char->integer #\F))
+                   (+ 10 (- b (char->integer #\A)))]
+                  [(<= (char->integer #\a) b (char->integer #\f))
+                   (+ 10 (- b (char->integer #\a)))]
+                  [else (raise (lambda () (error 'unhex "bad hex digit: ~s\n  in: ~e" b (subbytes buf 0 buflen))))]))
+          (define outlen (quotient buflen 2))
+          (define outbuf (make-bytes outlen))
+          (for ([outi (in-range 0 outlen 1)]
+                [bufi (in-range 0 buflen 2)])
+            (define hi (unhex (bytes-ref buf (+ bufi 0))))
+            (define lo (unhex (bytes-ref buf (+ bufi 1))))
+            (bytes-set! outbuf outi
+                        (+ (arithmetic-shift hi 4) lo)))
+          outbuf)
+        (get-varbuf SQL_C_CHAR 1 unhex-buffer (make-bytes 0)))
+      (define (get-bytes/quirky)
         ;; Oracle ODBC driver 21 discards one byte per incomplete SQLGetData
         ;; because it gets confused about NUL termination (which SQL_C_BINARY
         ;; doesn't use). So offer quirk to fetch binary data via hex string.
         (cond [quirk-get-c-binary?
-               (get-varbuf SQL_C_BINARY 0
-                           (lambda (buf len fresh?)
-                             ;; avoid copying long data twice:
-                             (cond [(and fresh? (= len (bytes-length buf))) buf]
-                                   [else (subbytes buf 0 len)])))]
+               (get-bytes/binary)]
               [else
-               ;; Oracle appears to have a separate bug retriving BINARY data
-               ;; via SQL_C_CHAR: SQLGetData advances by BufferLength bytes in
-               ;; the original data, rather than writing BufferLength bytes
-               ;; worth of hex codes. Does not appear to write past the end of
-               ;; the provided buffer, though. Workaround by using zero-length
-               ;; buffer for first call, to get length.
-               ;; FIXME: if zero-length buffer works, maybe use in general?
-               (define (unhex-buffer buf buflen fresh?)
-                 (define (unhex b)
-                   (cond [(<= (char->integer #\0) b (char->integer #\9))
-                          (- b (char->integer #\0))]
-                         [(<= (char->integer #\A) b (char->integer #\F))
-                          (+ 10 (- b (char->integer #\A)))]
-                         [(<= (char->integer #\a) b (char->integer #\f))
-                          (+ 10 (- b (char->integer #\a)))]
-                         [else (raise (lambda () (error 'unhex "bad hex digit: ~s" b)))]))
-                 (define outlen (quotient buflen 2))
-                 (define outbuf (make-bytes outlen))
-                 (for ([outi (in-range 0 outlen 1)]
-                       [bufi (in-range 0 buflen 2)])
-                   (define hi (unhex (bytes-ref buf (+ bufi 0))))
-                   (define lo (unhex (bytes-ref buf (+ bufi 1))))
-                   (bytes-set! outbuf outi
-                               (+ (arithmetic-shift hi 4) lo)))
-                 outbuf)
-               (get-varbuf SQL_C_CHAR 1 unhex-buffer (make-bytes 0))]))
+               (get-bytes/char)]))
       (define (get-col-fail what v)
         (raise (lambda () (error who "internal error: cannot get ~s from ~e" what v))))
 
@@ -725,7 +729,11 @@
              (case n [(0) #f] [(1) #t] [else (get-col-fail "SQL_BIT" n)])]
             [(or (= typeid SQL_BINARY)
                  (= typeid SQL_VARBINARY))
-             (get-bytes)]
+             (get-bytes/quirky)]
+            [(or (= typeid SQL_LONGVARBINARY))
+             ;; Oracle LONGVARBINARY does not get hex-encoded when retrieved as SQL_C_CHAR,
+             ;; but it also doesn't appear to suffer from the SQL_C_BINARY bugs.
+             (get-bytes/binary)]
             [(= typeid SQL_TYPE_DATE)
              (match (get-int-list '(2 2 2) SQL_C_TYPE_DATE)
                [(list y m d) (sql-date y m d)]
