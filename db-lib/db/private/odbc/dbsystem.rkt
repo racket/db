@@ -41,6 +41,7 @@
 (define (field-dvec->field-info dvec)
   `((name . ,(vector-ref dvec 0))
     (typeid . ,(vector-ref dvec 1))
+    (type   . ,(typeid->type (vector-ref dvec 1)))
     (size . ,(vector-ref dvec 2))
     (digits . ,(vector-ref dvec 3))))
 
