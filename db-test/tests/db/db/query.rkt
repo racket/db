@@ -230,14 +230,19 @@
             ((postgresql) (check-equal? param-types '(integer)))
             ((mysql) (check-equal? param-types '(any)))
             ((sqlite3) (check-equal? param-types '(any)))
-            ((odbc) (check-equal? (length param-types) 1)))) ;; actual types may vary
+            ((odbc) ;; actual types may vary
+             (check-equal? (length param-types) 1)
+             (check memq (car param-types) '(unknown integer)))))
         (let* ([pst (prepare c (sql "insert into the_numbers values ($1, $2)"))]
                [param-types (map cadr (prepared-statement-parameter-types pst))])
           (case dbsys
             ((postgresql) (check-equal? param-types '(integer varchar)))
             ((mysql) (check-equal? param-types '(any any)))
             ((sqlite3) (check-equal? param-types '(any any)))
-            ((odbc) (check-equal? (length param-types) 2))) ;; actual types may vary
+            ((odbc) ;; actual types may vary
+             (check-equal? (length param-types) 2)
+             (check memq (car param-types) '(unknown integer))
+             (check memq (cadr param-types) '(unknown varchar wvarchar))))
           (check-equal? (prepared-statement-result-types pst) '()))))))
 
 (define misc-tests
