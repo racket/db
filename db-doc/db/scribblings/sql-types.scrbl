@@ -46,58 +46,59 @@ prepared statements can be inspected using
 @section[#:tag "db-types"]{SQL Type Conversions}
 
 This section describes the correspondences between SQL types and
-Racket types for the supported database systems. 
+Racket types for the supported database systems.
 
 @subsection[#:tag "postgresql-types"]{PostgreSQL Types}
 
 This section applies to connections created with
-@racket[postgresql-connect]. 
+@racket[postgresql-connect].
 
-The following table lists the PostgreSQL types known to this library,
-along with their corresponding Racket representations.
+The following table lists the PostgreSQL types known to this library, using the
+names listed in @tt{pg_type.typname}, along with their corresponding Racket
+representations.
 
 @centered{
 @tabbing{
-  @bold{PostgreSQL type}  @& @bold{pg_type.typname}  @& @bold{Racket type} @//
-  @racket['boolean]       @& @tt{bool}               @& @racket[boolean?] @//
-  @racket['char1]         @& @tt{char}               @& @racket[char?] @//
-  @racket['smallint]      @& @tt{int2}               @& @racket[exact-integer?] @//
-  @racket['integer]       @& @tt{int4}               @& @racket[exact-integer?] @//
-  @racket['bigint]        @& @tt{int8}               @& @racket[exact-integer?] @//
-  @racket['real]          @& @tt{float4}             @& @racket[real?] @//
-  @racket['double]        @& @tt{float8}             @& @racket[real?] @//
-  @racket['decimal]       @& @tt{numeric}            @& @racket[rational?] or @racket[+nan.0] @//
-  @racket['character]     @& @tt{bpchar}             @& @racket[string?] @//
-  @racket['varchar]       @& @tt{varchar}            @& @racket[string?] @//
-  @racket['uuid]          @& @tt{uuid}               @& @racket[uuid?] @//
-  @racket['text]          @& @tt{text}               @& @racket[string?] @//
-  @racket['bytea]         @& @tt{bytea}              @& @racket[bytes?] @//
-  @racket['date]          @& @tt{date}               @& @racket[sql-date?] @//
-  @racket['time]          @& @tt{time}               @& @racket[sql-time?] @//
-  @racket['timetz]        @& @tt{timetz}             @& @racket[sql-time?] @//
-  @racket['timestamp]     @& @tt{timestamp}          @& @racket[sql-timestamp?]
-                                                        or @racket[-inf.0] or @racket[+inf.0] @//
-  @racket['timestamptz]   @& @tt{timestamptz}        @& @racket[sql-timestamp?] 
-                                                        or @racket[-inf.0] or @racket[+inf.0] @//
-  @racket['interval]      @& @tt{interval}           @& @racket[sql-interval?] @//
-  @racket['bit]           @& @tt{bit}                @& @racket[bit-vector?] @//
-  @racket['varbit]        @& @tt{varbit}             @& @racket[bit-vector?] @//
+@bold{PostgreSQL}       @& @bold{type}             @& @bold{Racket} @//
+@tt{bool}               @& @racket['boolean]       @& @racket[boolean?] @//
+@tt{char}               @& @racket['char1]         @& @racket[char?] @//
+@tt{int2}               @& @racket['smallint]      @& @racket[exact-integer?] @//
+@tt{int4}               @& @racket['integer]       @& @racket[exact-integer?] @//
+@tt{int8}               @& @racket['bigint]        @& @racket[exact-integer?] @//
+@tt{float4}             @& @racket['real]          @& @racket[real?] @//
+@tt{float8}             @& @racket['double]        @& @racket[real?] @//
+@tt{numeric}            @& @racket['decimal]       @& @racket[real?] @//
+@tt{bpchar}             @& @racket['character]     @& @racket[string?] @//
+@tt{varchar}            @& @racket['varchar]       @& @racket[string?] @//
+@tt{uuid}               @& @racket['uuid]          @& @racket[uuid?] @//
+@tt{text}               @& @racket['text]          @& @racket[string?] @//
+@tt{bytea}              @& @racket['bytea]         @& @racket[bytes?] @//
+@tt{date}               @& @racket['date]          @& @racket[sql-date?] @//
+@tt{time}               @& @racket['time]          @& @racket[sql-time?] @//
+@tt{timetz}             @& @racket['timetz]        @& @racket[sql-time?] @//
+@tt{timestamp}          @& @racket['timestamp]     @& @racket[sql-timestamp?]
+                                                      or @racket[-inf.0] or @racket[+inf.0] @//
+@tt{timestamptz}        @& @racket['timestamptz]   @& @racket[sql-timestamp?]
+                                                      or @racket[-inf.0] or @racket[+inf.0] @//
+@tt{interval}           @& @racket['interval]      @& @racket[sql-interval?] @//
+@tt{bit}                @& @racket['bit]           @& @racket[bit-vector?] @//
+@tt{varbit}             @& @racket['varbit]        @& @racket[bit-vector?] @//
 
-  @racket['json]          @& @tt{json}               @& @racket[jsexpr?] @//
-  @racket['jsonb]         @& @tt{jsonb}              @& @racket[jsexpr?] @//
-  @racket['int4range]     @& @tt{int4range}          @& @racket[pg-range-or-empty?] @//
-  @racket['int8range]     @& @tt{int8range}          @& @racket[pg-range-or-empty?] @//
-  @racket['numrange]      @& @tt{numrange}           @& @racket[pg-range-or-empty?] @//
-  @racket['tsrange]       @& @tt{tsrange}            @& @racket[pg-range-or-empty?] @//
-  @racket['tstzrange]     @& @tt{tstzrange}          @& @racket[pg-range-or-empty?] @//
-  @racket['daterange]     @& @tt{daterange}          @& @racket[pg-range-or-empty?] @//
+@tt{json}               @& @racket['json]          @& @racket[jsexpr?] @//
+@tt{jsonb}              @& @racket['jsonb]         @& @racket[jsexpr?] @//
+@tt{int4range}          @& @racket['int4range]     @& @racket[pg-range-or-empty?] @//
+@tt{int8range}          @& @racket['int8range]     @& @racket[pg-range-or-empty?] @//
+@tt{numrange}           @& @racket['numrange]      @& @racket[pg-range-or-empty?] @//
+@tt{tsrange}            @& @racket['tsrange]       @& @racket[pg-range-or-empty?] @//
+@tt{tstzrange}          @& @racket['tstzrange]     @& @racket[pg-range-or-empty?] @//
+@tt{daterange}          @& @racket['daterange]     @& @racket[pg-range-or-empty?] @//
 
-  @racket['point]         @& @tt{point}              @& @racket[point?] @//
-  @racket['lseg]          @& @tt{lseg}               @& @racket[line?] @//
-  @racket['path]          @& @tt{path}               @& @racket[pg-path?] @//
-  @racket['box]           @& @tt{box}                @& @racket[pg-box?] @//
-  @racket['polygon]       @& @tt{polygon}            @& @racket[polygon?] @//
-  @racket['circle]        @& @tt{circle}             @& @racket[pg-circle?]
+@tt{point}              @& @racket['point]         @& @racket[point?] @//
+@tt{lseg}               @& @racket['lseg]          @& @racket[line?] @//
+@tt{path}               @& @racket['path]          @& @racket[pg-path?] @//
+@tt{box}                @& @racket['box]           @& @racket[pg-box?] @//
+@tt{polygon}            @& @racket['polygon]       @& @racket[polygon?] @//
+@tt{circle}             @& @racket['circle]        @& @racket[pg-circle?]
 }
 }
 
@@ -171,6 +172,7 @@ types. These are currently not supported, but support may be added in
 future versions of this library.
 
 @history[#:changed "1.1" @elem{Added support for the @racket['uuid] type.}]
+@history[#:changed "1.14" @elem{The @tt{numeric} type now supports infinities.}]
 
 
 @subsection[#:tag "mysql-types"]{MySQL Types}
@@ -178,104 +180,104 @@ future versions of this library.
 This section applies to connections created with
 @racket[mysql-connect].
 
-The following table lists the MySQL types known to this library, along
-with their corresponding Racket representations.
+The types that MySQL reports types for query results do not correspond exactly
+to the declared types in SQL. The following table lists the MySQL result types
+known to this library, along with their corresponding Racket representations:
+@centered{
+@tabbing{
+@bold{MySQL}      @& @bold{result type}       @& @bold{Racket} @//
+@tt{INTEGER}      @& @racket['integer]        @& @racket[exact-integer?] @//
+@tt{TINYINT}      @& @racket['tinyint]        @& @racket[exact-integer?] @//
+@tt{SMALLINT}     @& @racket['smallint]       @& @racket[exact-integer?] @//
+@tt{MEDIUMINT}    @& @racket['mediumint]      @& @racket[exact-integer?] @//
+@tt{BIGINT}       @& @racket['bigint]         @& @racket[exact-integer?] @//
+@tt{FLOAT}        @& @racket['real]           @& @racket[real?] @//
+@tt{DOUBLE}       @& @racket['double]         @& @racket[real?] @//
+@tt{DECIMAL}      @& @racket['decimal]        @& @racket[exact?] @//
+@tt{NUMERIC}      @& @racket['decimal]        @& @racket[exact?] @//
 
+@tt{CHAR}         @& @racket['string] [1]     @& @racket[string?] @//
+@tt{VARCHAR}      @& @racket['var-string] [1] @& @racket[string?] @//
+@tt{TEXT}         @& @racket['blob] [1]       @& @racket[string?] @//
+
+@tt{BINARY}       @& @racket['string] [1]     @& @racket[bytes?] @//
+@tt{VARBINARY}    @& @racket['var-string] [1] @& @racket[bytes?] @//
+@tt{BLOB}         @& @racket['blob] [1]       @& @racket[bytes?] @//
+@tt{BIT}          @& @racket['bit]            @& @racket[bit-vector?] @//
+
+@tt{DATE}         @& @racket['date]           @& @racket[sql-date?] @//
+@tt{DATETIME}     @& @racket['datetime]       @& @racket[sql-timestamp?] @//
+@tt{TIMESTAMP}    @& @racket['datetime]       @& @racket[sql-timestamp?] @//
+@tt{TIME}         @& @racket['time] [2]       @& @racket[sql-time?] or @racket[sql-day-time-interval?] @//
+
+@tt{JSON}         @& @racket['json] [3]       @& @racket[jsexpr?] @//
+@tt{VECTOR}       @& @racket['vector] [4]     @& @racket[flvector?] @//
+@tt{GEOMETRY}     @& @racket['geometry] [5]   @& @racket[geometry2d?]
+}}
+
+Historically, MySQL did not provide types for query parameters; rather, the
+client was expected to tell the server the type of each parameter it
+sent. (Since MySQL v8.0, the server sends generally accurate type information
+for parameters, but this library currently discards that information.)
+Consequently, @racket[prepared-statement-parameter-types] reports the
+pseudo-type @racket['any] for every parameter of a MySQL prepared statement, and
+the parameter type sent to the server is inferred from the value as follows:
 @centered{
 @tabbing[#:spacing 8]{
-  @bold{MySQL type}            @& @bold{Racket type} @//
-  @racket['integer]            @& @racket[exact-integer?] @//
-  @racket['tinyint]            @& @racket[exact-integer?] @//
-  @racket['smallint]           @& @racket[exact-integer?] @//
-  @racket['mediumint]          @& @racket[exact-integer?] @//
-  @racket['bigint]             @& @racket[exact-integer?] @//
-  @racket['real]               @& @racket[real?] @//
-  @racket['double]             @& @racket[real?] @//
-  @racket['decimal]            @& @racket[exact?] @//
-  @racket['varchar]            @& @racket[string?] @//
-  @racket['date]               @& @racket[sql-date?] @//
-  @racket['time]               @& @racket[sql-time?] or @racket[sql-day-time-interval?] @//
-  @racket['datetime]           @& @racket[sql-timestamp?] @//
+  @bold{Racket} @& @bold{parameter type} @//
+  @racket[string?]   @& @racket['var-string] @//
+  @racket[exact-integer?] @& @racket['integer] or @racket['bigint] or @racket['decimal] @//
+  @racket[rational?] @& @racket['double] @//
+  @racket[bytes?]    @& @racket['blob] @//
+  @racket[sql-date?] @& @racket['date] @//
+  @racket[sql-time?] @& @racket['time] @//
+  @racket[sql-day-time-interval?] @& @racket['time] @//
+  @racket[sql-timestamp?] @& @racket['timestamp] @//
+  @racket[bit-vector?] @& @racket['bit] @//
+  @racket[geometry2d?] @& @racket['blob] or @racket['geometry] [5] @//
+  @racket[mysql-json?] @& @racket['json]
+}}
 
-  @racket['var-string]         @& @racket[string?] @//
-  @racket['text]               @& @racket[string?] @//
+[1] Fields of type @tt{CHAR} and @tt{BINARY} are both reported as
+@racket['string]; they are distinguished by the absence or presence of
+@racket['binary] in the type's flags, respectively. Likewise, @tt{VARCHAR} and
+@tt{VARBINARY} are reported as @racket['var-string]; and @tt{TEXT} and @tt{BLOB}
+are reported as @racket['blob]; and they are distinguished by the absence or
+presence of a @racket['binary] flag. Both @tt{TEXT} and @tt{BLOB} types have the
+@racket['blob] flag set.
 
-  @racket['var-binary]         @& @racket[bytes?] @//
-  @racket['blob]               @& @racket[bytes?] @//
-
-  @racket['bit]                @& @racket[bit-vector?] @//
-  @racket['geometry]           @& @racket[geometry2d?] @//
-  @racket['json]               @& @racket[jsexpr?] (@racket[mysql-json?] for parameters) @//
-  @racket['vector]             @& @racket[flvector?]
-}
-}
-
-MySQL provides type information for query results, but it does not
-provide types for query parameters; rather, the client is expected to
-tell the server the type of each parameter it sends. Consequently,
-@racket[prepared-statement-parameter-types] reports the pseudo-type
-@racket['any] for every parameter of a MySQL prepared statement, and
-the type sent to the server is inferred from the parameter value as
-follows: 
-@itemlist[
-
-@item{@racket[string?] --- sent as @tt{VARSTRING}}
-
-@item{@racket[exact-integer?] --- sent as @tt{BIGINT} if it fits
-within a signed 64-bit integer or as @tt{DOUBLE} otherwise. The
-conversion to @tt{DOUBLE} may lose precision.}
-
-@item{@racket[real?] --- sent as @tt{DOUBLE}. Infinities and NaN are
-not allowed. The conversion may lose precision.}
-
-@item{@racket[bytes?] --- sent as @tt{BLOB}}
-
-@item{@racket[sql-date?] --- sent as @tt{DATE}}
-
-@item{@racket[sql-time?] or @racket[sql-day-time-interval?] --- sent as @tt{TIME}}
-
-@item{@racket[sql-timestamp?] --- sent as @tt{TIMESTAMP}}
-
-@item{@racket[bit-vector?] --- sent as @tt{BITS}}
-
-@item{@racket[geometry2d?] --- server version 8.0 and later: the ``well-known
-binary'' encoding is sent as @tt{BLOB}; version 5.7.x and earlier: sent as
-@tt{GEOMETRY}}
-
-@item{@racket[mysql-json?] --- sent as @tt{JSON}}
-
-]
-
-Fields of type @tt{CHAR} or @tt{VARCHAR} are typically reported as
-@racket['var-string], and fields of type @tt{BINARY} or @tt{VARBINARY}
-are typically reported as @racket['var-binary].
-
-The MySQL @tt{TIME} type represents time intervals, which may not
-correspond to times of day (for example, the interval may be negative
-or larger than 24 hours). In conversion from MySQL results to Racket
-values, those @tt{TIME} values that represent times of day are
-converted to @racket[sql-time] values; the rest are represented by
-@racket[sql-interval] values. (See also
+[2] MySQL's @tt{TIME} type represents time intervals, which may not correspond
+to times of day (for example, the interval may be negative or larger than 24
+hours). In conversion from MySQL results to Racket values, those @tt{TIME}
+values that represent times of day are converted to @racket[sql-time] values;
+the rest are represented by @racket[sql-interval] values. (See also
 @racket[sql-time->sql-interval] and @racket[sql-interval->sql-time].)
 
-The @tt{JSON} type (introduced in MySQL 5.7) is represented by @racket[jsexpr?]
-values, but that representation overlaps with the representation of MySQL
-character types (eg, @tt{VARCHAR}), and the values are interpreted in
-incompatible ways. Query parameters are only sent as @tt{JSON} if they are
-wrapped with @racket[mysql-json]; @tt{JSON} result values are returned as
-unwrapped @racket[jsexpr?]  values.
+[3] The @tt{JSON} type (introduced in MySQL 5.7) is represented by
+@racket[jsexpr?]  values, but that representation overlaps with the
+representation of MySQL character types (eg, @tt{VARCHAR}), and the values are
+interpreted in incompatible ways. Query parameters are only sent as @tt{JSON} if
+they are wrapped with @racket[mysql-json]; @tt{JSON} result values are returned
+as unwrapped @racket[jsexpr?] values.
 
-The @tt{VECTOR} type (introduced in MySQL 9.0) is represented by non-empty
+[4] The @tt{VECTOR} type (introduced in MySQL 9.0) is represented by non-empty
 @tech/reference{flvectors} (@racket[flvector?]). Beware that flvectors store
 double-precision floating-point numbers, but MySQL @tt{VECTOR} fields are
 single-precision.
 
+[5] Geometry values (@racket[geometry2d?]) are sent using their ``well-known
+binary'' encoding. For servers version 8.0 and later, the values are sent as
+@racket['blob]; for servers version 5.7.x and earlier, values are sent as
+@racket['geometry].
+
 The MySQL @tt{enum} and @tt{set} types are not supported. As a
-workaround, cast them to/from either integers or strings.
+workaround, cast them to or from either integers or strings.
 
 @history[#:changed "1.11" @elem{Added support for @tt{JSON}, @tt{VECTOR}.
-Changed format of @tt{GEOMETRY} query parameters for servers running MySQL 8.0
+ Changed format of @tt{GEOMETRY} query parameters for servers running MySQL 8.0
  and later.}]
+@history[#:changed "1.14" @elem{Send exact integers as @tt{DECIMAL}
+ instead of @tt{FLOAT}.}]
 
 
 @subsection[#:tag "cassandra-types"]{Cassandra Types}
@@ -355,54 +357,94 @@ is converted as @tt{real}, not @tt{integer}.
 This section applies to connections created with @racket[odbc-connect]
 or @racket[odbc-driver-connect].
 
-The following table lists the ODBC types known to this library,
-along with their corresponding Racket representations.
+The following table lists the
+@hyperlink["https://learn.microsoft.com/en-us/sql/odbc/reference/appendixes/sql-data-types"]{ODBC
+types} known to this library, along with their corresponding Racket
+representations.
+@tabular[
+#:style 'boxed
+(list
+(list @bold{ODBC}             @bold{type}             @bold{Racket})
+(list @tt{SQL_CHAR}           @racket['character]     @racket[string?])
+(list @tt{SQL_VARCHAR}        @racket['varchar]       @racket[string?])
+(list @tt{SQL_LONGVARCHAR}    @racket['longvarchar]   @racket[string?])
 
-@centered{
-@tabbing[#:spacing 8]{
-  @bold{ODBC type}        @& @bold{Racket type} @//
-  @racket['character]     @& @racket[string?] @//
-  @racket['varchar]       @& @racket[string?] @//
-  @racket['longvarchar]   @& @racket[string?] @//
-  @racket['numeric]       @& @racket[rational?] @//
-  @racket['decimal]       @& @racket[rational?] @//
-  @racket['integer]       @& @racket[exact-integer?] @//
-  @racket['tinyint]       @& @racket[exact-integer?] @//
-  @racket['smallint]      @& @racket[exact-integer?] @//
-  @racket['bigint]        @& @racket[exact-integer?] @//
-  @racket['float]         @& @racket[real?] @//
-  @racket['real]          @& @racket[real?] @//
-  @racket['double]        @& @racket[real?] @//
-  @racket['date]          @& @racket[sql-date?] @//
-  @racket['time]          @& @racket[sql-time?] @//
-  @racket['datetime]      @& @racket[sql-timestamp?] @//
-  @racket['timestamp]     @& @racket[sql-timestamp?] @//
-  @racket['binary]        @& @racket[bytes?] @//
-  @racket['varbinary]     @& @racket[bytes?] @//
-  @racket['longvarbinary] @& @racket[bytes?] @//
-  @racket['bit1]          @& @racket[boolean?]
-}
-}
+(list @tt{SQL_WCHAR}          @racket['wchar]         @racket[string?])
+(list @tt{SQL_WVARCHAR}       @racket['wvarchar]      @racket[string?])
+(list @tt{SQL_WLONGVARCHAR}   @racket['wlongvarchar]  @racket[string?])
 
-Not all ODBC drivers provide specific parameter type information for
-prepared queries. Some omit parameter type information entirely or,
-worse, assign all parameters a single type such as @tt{varchar}. To
-avoid enforcing irrelevant type constraints in the last case,
-connections only attempt to fetch and enforce parameter types when the
-connection is made using the @racket[#:strict-parameter-type?]
-option. Otherwise, the connection assigns all parameters the type
-@racket['unknown]. (The @racket['unknown] type is also used when
-specific parameter types are requested but are not available.)
-Conversion of Racket values to @racket['unknown] parameters accepts
-strings, bytes, numbers (@racket[rational?]---no infinities or NaN),
-booleans, and SQL date/time structures (@racket[sql-date?],
-@racket[sql-time?], and @racket[sql-timestamp?]).
+(list @tt{SQL_BINARY}         @racket['binary]        @racket[bytes?])
+(list @tt{SQL_VARBINARY}      @racket['varbinary]     @racket[bytes?])
+(list @tt{SQL_LONGVARBINARY}  @racket['longvarbinary] @racket[bytes?])
 
-The ODBC type @racket['bit1] represents a single bit, unlike the
-standard SQL @tt{bit(N)} type.
+(list @tt{SQL_INTEGER}        @racket['integer]       @racket[exact-integer?])
+(list @tt{SQL_TINYINT}        @racket['tinyint]       @racket[exact-integer?])
+(list @tt{SQL_SMALLINT}       @racket['smallint]      @racket[exact-integer?])
+(list @tt{SQL_BIGINT}         @racket['bigint]        @racket[exact-integer?])
+(list @tt{SQL_FLOAT}          @racket['float]         @racket[real?])
+(list @tt{SQL_REAL}           @racket['real]          @racket[real?])
+(list @tt{SQL_DOUBLE}         @racket['double]        @racket[real?])
+(list @tt{SQL_NUMERIC}        @racket['numeric]       @racket[rational?])
+(list @tt{SQL_DECIMAL}        @racket['decimal]       @racket[rational?])
 
-Interval types are not currently supported on ODBC.
+(list @tt{SQL_BIT}            @racket['bit1]          @racket[boolean?])
 
+(list @tt{SQL_DATE}           @racket['date]          @racket[sql-date?])
+(list @tt{SQL_TIME}           @racket['time]          @racket[sql-time?])
+(list @tt{SQL_DATETIME}       @racket['datetime]      @racket[sql-timestamp?])
+(list @tt{SQL_TIMESTAMP}      @racket['timestamp]     @racket[sql-timestamp?])
+
+(list @tt{SQL_UNKNOWN}        @racket['unknown]       @racket[string?])
+
+(list @bold{SQL Server extensions:} 'cont 'cont)
+(list @tt{SQL_SS_TIME2 (-154)}      @racket['time2]          @racket[sql-time?])
+
+(list @bold{DB2 extensions:}        'cont 'cont)
+(list @tt{SQL_GRAPHIC (-95)}        @racket['graphic]        @racket[string?])
+(list @tt{SQL_VARGRAPHIC (-96)}     @racket['vargraphic]     @racket[string?])
+(list @tt{SQL_LONGVARGRAPHIC (-97)} @racket['longvargraphic] @racket[string?])
+(list @tt{SQL_BLOB (-98)}           @racket['blob]           @racket[bytes?])
+(list @tt{SQL_CLOB (-99)}           @racket['clob]           @racket[string?])
+(list @tt{SQL_DBCLOB (-350)}        @racket['dbclob]         @racket[string?]))
+]
+
+If the connection was made with @racket[#:strict-parameter-types? #t], then the
+parameter type set by the ODBC driver is usually respected. Unfortunately, few
+ODBC drivers provide useful parameter types for prepared queries. Some assign
+parameters the @racket['unknown] type; worse, some assign all parameters a
+single type such as @racket['varchar]. To avoid enforcing irrelevant type
+constraints in the latter case, connect with @racket[#:strict-parameter-types?
+#f], and the connection will assign all parameters the type
+@racket['unknown]. When a parameter type is @racket['unknown], this library
+sends the ODBC driver a parameter type based on the parameter value as follows:
+@tabular[
+#:style 'boxed
+(list
+(list @bold{Racket}           @bold{parameter type})
+(list @racket[exact-integer?] @elem{@tt{SQL_INTEGER} or @tt{SQL_BIGINT} or @tt{SQL_NUMERIC}})
+(list @racket[(and/c real? exact?)]     @elem{@tt{SQL_NUMERIC} or @tt{SQL_DOUBLE}})
+(list @racket[(and/c real? inexact?)]   @tt{SQL_DOUBLE})
+(list @racket[boolean?]       @tt{SQL_BIT})
+(list @racket[string?]        @elem{@tt{SQL_VARCHAR} or @tt{SQL_WVARCHAR} [1]})
+(list @racket[bytes?]         @elem{@tt{SQL_VARBINARY} [2]})
+(list @racket[sql-date?]      @tt{SQL_DATE})
+(list @racket[sql-time?]      @elem{@tt{SQL_TIME}})
+(list @racket[sql-day-time-interval?] @tt{SQL_TIME})
+(list @racket[sql-timestamp?] @tt{SQL_TIMESTAMP})
+)]
+
+[1] The type of a string parameter is determined by the connection's character
+mode; see @racket[odbc-connect]'s @racket[#:character-mode] argument. Depending
+on connection quirks, the type may also be set as @tt{SQL_LONGVARCHAR} or
+@tt{SQL_WLONGVARCHAR}.
+
+[2] Depending on connection quirks, the type may also be set as
+@tt{SQL_LONGVARBINARY}.
+
+Interval types are not currently supported for ODBC connections.
+
+@history[#:changed "1.14" @elem{Added support for the DB2 types. Exact numbers
+  are sent as @tt{SQL_NUMERIC} if possible.}]
 
 @;{----------------------------------------}
 

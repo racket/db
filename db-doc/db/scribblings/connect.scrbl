@@ -355,11 +355,36 @@ Reports whether the SQLite native library is found, in which case
   supported:
   @itemlist[
 
-  @item{@racket['no-c-bigint] --- Don't use @tt{SQL_C_BIGINT} to bind
-  parameters or fetch field values.}
+  @item{@racket['no-c-bigint] --- Don't use @tt{SQL_C_BIGINT} to get values or bind
+  parameters.}
 
-  @item{@racket['no-c-numeric] --- Don't use @tt{SQL_C_NUMERIC} to
-  fetch @tt{NUMERIC}/@tt{DECIMAL} values.}
+  @item{@racket['no-c-numeric] --- Don't use @tt{SQL_C_NUMERIC} to get
+  @tt{SQL_NUMERIC} or @tt{SQL_DECIMAL} values or to bind parameters.}
+
+  @item{@racket['no-get-c-binary] --- Don't use @tt{SQL_C_BINARY} to get binary
+  (@tt{SQL_BINARY} or @tt{SQL_VARBINARY}) values. Does not apply to
+  @tt{SQL_LONGVARBINARY} values.}
+
+  @item{@racket['no-fix-sqllen] --- Some drivers return bad length values on
+  64-bit platforms; by default this library applies the workaround of truncating
+  the value to 32 bits. This quirk disables that workaround.}
+
+  @item{@racket['char-precision], @racket['binary-precision] --- When binding
+  character string or binary parameters, respectively, set the ColumnLength
+  attribute to a non-zero value. By default, this library sets the ColumnLength
+  to zero, which most drivers, but not all, interpret as ``unbounded''.}
+
+  @item{@racket['string-longvarchar-always], @racket['string-longvarchar-256]
+  --- When binding character string parameters, send the data as type
+  @tt{SQL_LONGVARCHAR} or @tt{SQL_WLONGVARCHAR} instead of @tt{SQL_VARCHAR} or
+  @tt{SQL_WVARCHAR}, either always or when the parameter length is 256 or
+  greater, respectively. Length is measured in bytes for @tt{SQL_VARCHAR} and
+  wide characters for @tt{SQL_WVARCHAR}.}
+
+  @item{@racket['bytes-longvarchar-always], @racket['bytes-longvarchar-256] ---
+  When binding binary parameters, send the data as type @tt{SQL_LONGVARBINARY}
+  instead of @tt{SQL_VARBINARY}, either always or when the parameter length is
+  256 bytes or greater, respectively.}
 
   ]
   See @secref["odbc-status"] for notes on specific ODBC drivers and
@@ -371,6 +396,11 @@ Reports whether the SQLite native library is found, in which case
   If the connection cannot be made, an exception is raised.
 
   @history[#:changed "1.3" @elem{Added @racket[#:quirks] argument.}]
+  @history[#:changed "1.14" @elem{Added the following @racket[#:quirks]:
+    @racket['no-get-c-binary], @racket['no-fix-sqllen],
+    @racketvalfont{'{char,binary}-precision},
+    @racketvalfont{'string-longvarchar-{always,256}}, and
+    @racketvalfont{'bytes-longvarbinary-{always,256}}.}]
 }
 
 @defproc[(odbc-driver-connect [connection-string string?]

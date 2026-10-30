@@ -117,7 +117,7 @@ adjustment is not applied, nor is the session's @tt{TIME ZONE} offset
 included; thus all @racket[sql-timestamp] values in a query result
 have a @racket[tz] field of @racket[0] (for @tt{timestamp with time
 zone}) or @racket[#f] (for @tt{timestamp without time
-zone}). (Previous versions of this library sent and received
+zone}). (Ancient versions of this library sent and received
 timestamps as text, so they received timestamps with adjusted time
 zones.)
 
@@ -283,23 +283,95 @@ ODBC support is experimental. The behavior of ODBC connections can
 vary widely depending on the driver in use and even the configuration
 of a particular data source.
 
-The following sections describe the configurations that this library
-has been tested with. Reports of success or failure on other platforms
-or with other drivers would be appreciated.
+The following sections describe the configurations that this library has been
+tested with. Unless otherwise specified, tests were run on Ubuntu 22.04.5 on
+x86_64 with unixODBC 2.3.9. Reports of success or failure on other platforms or
+with other drivers would be appreciated.
 
+@subsection[#:tag "odbc-sql-server"]{SQL Server ODBC Driver}
 
-@subsection{DB2 ODBC Driver}
+The Microsoft ODBC drivers do not need any quirks.
+
+When using the FreeTDS driver, connect using @racket[#:quirks '(no-c-numeric
+string-longvarchar-always bytes-longvarbinary-always)].
+
+Microsoft SQL Server ODBC drivers were tested with the following
+software configurations:
+
+@itemlist[
+@item{Server: SQL Server 2025 (v17.0.5015); @tt{mcr.microsoft.com/mssql/server:2025-CU9-GDR1-ubuntu-24.04}}
+@item{Server: SQL Server 2022 (v16.0.4305); @tt{mcr.microsoft.com/mssql/server:2022-CU27-GDR1-ubuntu-22.04}}
+@item{Driver: ODBC Driver for SQL Server (v18.6.2, v17.11.1)}
+@item{Driver: FreeTDS tdsodbc (v1.3.6)}
+]
+
+Known issues:
+@itemlist[
+
+@item{If queries are nested or interleaved---that is, a second query
+is executed before the first query's results are completely
+consumed---the driver might signal an error ``Connection is busy with
+results for another command (SQLSTATE: HY000)''.
+
+@bold{Fix: } Set the @tt{MARS_Connection} data source option to @tt{Yes}. See 
+@hyperlink["https://stackoverflow.com/questions/9017264/why-only-some-users-get-the-error-connection-is-busy"]{this page} or @hyperlink["https://serverfault.com/questions/302169/odbc-sql-server-how-do-i-turn-on-multiple-active-result-sets"]{this page} for instructions.}
+
+@item{Driver v17 fails a test involving a string containing Unicode characters
+outside of the Basic Multilingual Plane (BMP). The test passes under driver
+v18.}
+
+]
+
+@subsection[#:tag "odbc-oracle"]{Oracle ODBC Driver}
+
+Connect with @racket[#:quirks '(no-get-c-binary)].
+
+Oracle ODBC drivers were tested with the following software configuration:
+
+@itemlist[
+@item{Server: Oracle AI Database 26ai Free; @tt{container-registry.oracle.com/database/free:23.26.3.0-lite}}
+@item{Drivers: Oracle Instant Client ODBC (v21.13, v23.26)}
+]
+
+Typical installations of the drivers require the @tt{LD_LIBRARY_PATH}
+environment variable to be set to the driver's installed @tt{lib}
+directory (ie, the directory containing @tt{libsqora.so}) so the
+driver can find its sibling shared libraries.
+
+Known issues:
+@itemlist[
+
+@item{Binary values retrieved using multiple calls to @tt{SQLGetData} with
+@tt{SQL_C_BINARY} are corrupted: a byte is dropped at each chunk boundary.
+
+@bold{Fix: } Use the @racket['no-get-c-binary] quirk.}
+
+@item{Driver v23.26 fails a test that attempts to store and retrieve
+a string containing non-BMP characters into a @tt{CLOB} field. This test passes
+with driver v21.13.}
+
+@item{With the @racket[#:strict-parameter-types? #t] option,
+parameters seem to be always assigned the type @tt{varchar}.
+
+@bold{Fix: } Leave strict parameter types off (the default).}
+
+@item{Queries containing a @tt{CAST(_ AS TIME)} expression may cause this
+library to fail with an internal error, because the driver signals an error but
+does not create a diagnostic record. (Oracle does not have a @tt{TIME} type.)}
+
+]
+
+@subsection[#:tag "odbc-db2"]{DB2 ODBC Driver}
+
+Connect with @racket[#:quirks '(no-c-numeric)].
 
 IBM DB2 ODBC drivers were tested with the following software configuration:
 
 @itemlist[
-@item{Platform: Centos 7.4 on x86_64}
-@item{Database: DB2 Express-C for Linux x64 v11.1}
-@item{Driver: ODBC for DB2 (included with DB2 Express-C)}
+@item{Server: DB2 Community Edition v11.5.8.0; @tt{docker.io/ibmcom/db2:11.5.8.0}}
+@item{Server: DB2 Community Edition v12.1.5.0; @tt{icr.io/db2_community/db2:12.1.5.0}}
+@item{Driver: ODBC Driver for DB2 v12.1.3}
 ]
-
-This driver seems to require environment variables to be set using the
-provided scripts (eg, @tt{source /home/db2inst1/sqllib/db2profile}).
 
 Known issues:
 @itemlist[
@@ -311,75 +383,6 @@ structure for retrieving @tt{DECIMAL}/@tt{NUMERIC} fields.
 
 ]
 
-@subsection{Oracle ODBC Driver}
-
-Oracle ODBC drivers were tested with the following software configuration:
-
-@itemlist[
-@item{Platform: Centos 7.4 on x86_64}
-@item{Database: Oracle XE 11g (11.2.0)}
-@item{Drivers: Oracle Instant Client ODBC (11.2.0 and 12.2.0)}
-]
-
-Typical installations of the drivers require the @tt{LD_LIBRARY_PATH}
-environment variable to be set to the driver's installed @tt{lib}
-directory (ie, the directory containing @tt{libsqora.so}) so the
-driver can find its sibling shared libraries.
-
-Known issues:
-@itemlist[
-
-@item{With the @racket[#:strict-parameter-types? #t] option,
-parameters seem to be always assigned the type @tt{varchar}.
-
-@bold{Fix: } Leave strict parameter types off (the default).}
-
-@item{The driver does not support the @tt{SQL_C_BIGINT} format for
-parameters or result fields. Consequently, passing large integers as
-query parameters may fail.
-
-@bold{Fix: } Use @racket[#:quirks '(no-c-bigint)] with
-@racket[odbc-connect].}
-
-@item{A field of type @tt{TIME} causes the driver to return garbage
-for the typeid and type parameters. This usually causes an error with
-a message like ``unsupported type; typeid: -29936'', but with a random
-typeid value. (Oracle appears not to have a @tt{TIME} type, so this
-bug might only appear when a value is explicitly @tt{CAST} as
-@tt{TIME}---for some reason, that doesn't produce an error.)}
-
-@item{Attempting to quit Racket with a connection still open may cause
-Racket to hang. Specifically, the problem seems to be in the driver's
-@tt{_fini} function.
-
-@bold{Fix: } Close connections before exiting, either explicitly using
-@racket[disconnect] or by shutting down their custodians.}
-
-]
-
-@subsection{SQL Server ODBC Driver}
-
-Microsoft SQL Server ODBC drivers were tested with the following
-software configuration:
-
-@itemlist[
-@item{Platform: Windows 10 on x86_64}
-@item{Database: SQL Server Express 2017}
-@item{Drivers: ODBC Driver 13 for SQL Server, SQL Server Native Client 11.0}
-]
-
-Known issues:
-@itemlist[
-
-@item{If queries are nested or interleaved---that is, a second query
-is executed before the first query's results are completely
-consumed---the driver might signal an error ``Connection is busy with
-results for another command (SQLSTATE: HY000)''.
-
-@bold{Fix: } Set the @tt{MARS_Connection} data source option to @tt{Yes} (see
-@hyperlink["https://stackoverflow.com/questions/9017264/why-only-some-users-get-the-error-connection-is-busy"]{this page}). The ODBC Manager GUI does not expose the option, but it can be added @hyperlink["https://serverfault.com/questions/302169/odbc-sql-server-how-do-i-turn-on-multiple-active-result-sets"]{by editing the registry}.}
-
-]
 
 @section[#:tag "multi-stmt"]{Multi-Statement Queries}
 
