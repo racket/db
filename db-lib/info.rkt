@@ -1,6 +1,6 @@
 #lang setup/infotab
 
-(define version "1.13")
+(define version "1.14")
 
 (define collection 'multi)
 (define deps '("srfi-lite-lib"
