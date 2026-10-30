@@ -619,9 +619,9 @@
                               [else (convert buf len #f)])]
                        [else
                         ;; didn't fit in buf, but we know how much more there is
-                        (define len-got (max 0 (- (bytes-length buf) ntlen)))
+                        (define len-got (max start (- (bytes-length buf) ntlen)))
                         (define newbuf (make-bytes (+ len ntlen)))
-                        (bytes-copy! newbuf 0 buf start len-got)
+                        (bytes-copy! newbuf 0 buf 0 len-got)
                         (loop newbuf len-got rchunks)])]))
         (loop (or initbuf scratchbuf) 0 null))
 
