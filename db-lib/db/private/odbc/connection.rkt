@@ -470,15 +470,6 @@
                             (bytes-append (integer->integer-bytes h 2 #f)
                                           (integer->integer-bytes m 2 #f)
                                           (integer->integer-bytes s 2 #f))))])]
-            [(sql-time? param)
-             (bind SQL_C_TYPE_TIME SQL_TYPE_TIME
-                   (let* ([x param]
-                          [h (sql-time-hour x)]
-                          [m (sql-time-minute x)]
-                          [s (sql-time-second x)])
-                     (bytes-append (integer->integer-bytes h 2 #f)
-                                   (integer->integer-bytes m 2 #f)
-                                   (integer->integer-bytes s 2 #f))))]
             [(sql-timestamp? param)
              (bind SQL_C_TYPE_TIMESTAMP (typeid-or SQL_TYPE_TIMESTAMP)
                    (let ([x param])
