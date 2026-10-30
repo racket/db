@@ -49,9 +49,7 @@ subsections.
 
 Then, run the tests with the following command line:
 
-  racket -l tests/db/all-tests -- -g <label> ...
-
-Each <label> is either a <dsn> or a <confname>.
+  racket -l tests/db/all-tests -- -g <dsn> ...
 
 == <dsn> ==
 
@@ -65,68 +63,19 @@ data source. The data source must conform to the following rules:
  - It should have an extension property named 'db:test whose value is
    a list. The list should contain exactly one of the following
    symbols, specifying the SQL dialect used by the data source: 'ispg,
-   'ismy, 'issl, 'isora, 'isdb2.
-
- - If either 'isora or 'isdb2 is set, the database should already be
-   populated with the "the_numbers" table (see config.rkt for definition
-   and test data). Otherwise, it is automatically created as a temporary
-   table for each test case.
+   'ismy, 'issl, 'isora, 'isdb2, 'isfbd, 'isacc.
 
 Running the tests on a new database system will almost certainly
 require changing the test suite to generate the correct SQL dialect
 and to selectively disable tests that can't run on a particular
 system.
-
-== <confname>: Defining testing configurations ==
-
-The "db-test.rktd" pref file (see definition of 'pref-file' below
-gives a mapping from <confnames> (ie, symbols) to <conf>s, which
-aggregate multiple testing data sources into a single profile.
-
-<conf> ::= (profile <conf> ...)
-         | (dsn <symbol>)
-         | (ref <symbol>)
-
-Testing profiles are flattened, not hierarchical.
-
 |#
 
 ;; ----------------------------------------
 
-(define pref-file
-  (make-parameter (build-path (find-system-path 'pref-dir) "db-test.rktd")))
-
 (define (get-dbconf name)
-  (let ([conf (get-preference name (lambda () #f) 'timestamp (pref-file))])
-    (if conf
-        (parse-dbconf conf)
-        (let ([r (get-dsn name)])
-          (if r
-              (list (dbconf name r))
-              (error 'get-dbconf "no such dbconf: ~e" name))))))
-
-(struct dbconf (name dsn) #:transparent)
-
-(define-syntax-rule (expect name pred)
-  (unless (pred name) (error 'parse "bad ~a: ~e" 'name name)))
-
-;; parse-dbconf : sexpr -> (listof dbconf?)
-(define (parse-dbconf x)
-  (match x
-    [(list 'profile dbconfs ...)
-     (apply append (map parse-dbconf dbconfs))]
-    [(list 'ref conf-name)
-     (expect conf-name symbol?)
-     (get-dbconf conf-name)]
-    [(list 'dsn dsn-name)
-     (expect dsn-name symbol?)
-     (list (dbconf dsn-name (get-dsn dsn-name)))]))
-
-;; ----
-
-;; Set below by command-line parsing
-(define kill-safe? #f)
-(define add-use-place? #f)
+  (cond [(get-dsn name) => (lambda (r) (dbconf name r))]
+        [else (error 'get-dbconf "no such dbconf: ~e" name)]))
 
 (define (expand-dbconf x)
   (match x
@@ -151,16 +100,8 @@ Testing profiles are flattened, not hierarchical.
                  null))]
            [else (list x)])]))
 
-(define (dbconf->unit x [flags0 null])
-  (match x
-    [(dbconf dbtestname (and r (data-source connector _args exts)))
-     (define (connect) (dsn-connect r))
-     (define dbsys (case connector ((odbc-driver) 'odbc) (else connector)))
-     (define dbflags (append flags0 (cond [(assq 'db:test exts) => cadr] [else '()])))
-     (define (connect-first-time ssl?)
-       (if ssl? (dsn-connect #:ssl 'yes r) (connect)))
-     ;; implicit ref to kill-safe?
-     (unit-from-context database^)]))
+(define (dbconf->unit the-dbconf flags0)
+  (unit-from-context database^))
 
 (define sqlite3-dbconf
   (dbconf "sqlite3, memory"
@@ -178,7 +119,7 @@ Testing profiles are flattened, not hierarchical.
   (export test^)
   (define test
     (make-test-suite
-     (format "~a tests" dbtestname)
+     (format "~a tests" (dbconf-name the-dbconf))
      (list connect:test
            query:test
            sql-types:test
@@ -208,104 +149,107 @@ Testing profiles are flattened, not hierarchical.
   (define-values/invoke-unit (specialize-test@ db@) (import) (export test^))
   test)
 
-;; ----
-
-(define (make-all-tests dbconfs)
+(define (make-all-tests dbconfs flags)
   (for/list ([dbconf (in-list dbconfs)])
-    (specialize-test (dbconf->unit dbconf base-flags))))
-
-;; ----
-
-(define-syntax-rule (setup-debug db@ c)
-  (begin (define-values/invoke-unit db@ (import) (export database^))
-         (define-values/invoke-unit config@ (import database^) (export config^))
-         (define c (connect-and-setup))))
+    (specialize-test (dbconf->unit dbconf flags))))
 
 ;; ----------------------------------------
 
-(define base-flags null)
-
-(define gui? #f)
-(define include-sqlite? #f)
-(define use-parallel-thread? #f)
-(define benchmark? #f)
 (define benchmark-iters 12)
+(define-runtime-path testing-dsn-file "test-dsn.rktd")
 
-(define-runtime-path testing-dsn "test-dsn.rktd")
+(define (run #:gui? [gui? #f]
+             #:include-sqlite? [include-sqlite? #f]
+             #:add-use-place? [add-use-place? #f]
+             #:testing-dsn-file? [testing-dsn-file? #t]
+             #:flags [flags null]
+             labels)
+  (define dbconfs
+    (append (if include-sqlite? (list sqlite3-dbconf) null)
+            (parameterize ((current-dsn-file
+                            (if testing-dsn-file?
+                                testing-dsn-file
+                                (current-dsn-file))))
+              (map get-dbconf labels))))
+  (define dbconfs2
+    (cond [add-use-place? (apply append (map expand-dbconf dbconfs))]
+          [else dbconfs]))
+  (define tests (for/list ([dbconf dbconfs2])
+                  (cons (format "~a" (dbconf-name dbconf))
+                        (make-all-tests (list dbconf) flags))))
+  (define (run proc) ;; returns void
+    (cond [(memq 'use-parallel-thread flags)
+           (thread-wait (thread #:pool 'own proc))]
+          [else
+           (thread-wait (thread proc))]))
+  (define cust (make-custodian))
+  (define ((wrap/custodian proc))
+    (define sub-cust (make-custodian))
+    (begin0 (parameterize ((current-custodian sub-cust)) (proc))
+      (custodian-shutdown-all sub-cust)))
+  (parameterize ((current-custodian cust))
+    (cond [gui?
+           (let* ([test/gui (dynamic-require 'rackunit/gui 'test/gui)])
+             (apply test/gui #:wait? #t (append* (map cdr tests))))]
+          [else
+           (for ([test (in-list tests)])
+             (define the-test (make-test-suite (car test) (cdr test)))
+             (define (do-test) (run (lambda () (run-tests the-test))))
+             (printf "Running ~s tests\n" (car test))
+             (cond [(memq 'benchmark flags)
+                    (define real-ms-list
+                      (for/list ([i (in-range benchmark-iters)])
+                        (define-values (_rs cpu-ms real-ms sys-ms)
+                          (time-apply (wrap/custodian do-test) null))
+                        (collect-garbage)
+                        (printf "real time: ~s ms; memory use: ~s kb\n"
+                                real-ms (quotient (current-memory-use) 1024))
+                        real-ms))
+                    (printf "~s ~s\n" (sort real-ms-list <)
+                            ;; Drop highest and lowest, report sum of rest
+                            (- (apply + real-ms-list)
+                               (+ (apply min real-ms-list) (apply max real-ms-list))))]
+                   [else
+                    (time (run (lambda () (run-tests (make-test-suite (car test) (cdr test))))))])
+             (newline))]))
+  ;; The tests generally don't explicitly disconnect their connections. The
+  ;; following encourages finalizer shutdown or forces custodian shutdown, useful
+  ;; for testing with eg ASan (see racket/racket#3839).
+  (when #t
+    (for ([i 10]) (sync (system-idle-evt)) (collect-garbage)))
+  (when #f
+    (custodian-shutdown-all cust)))
 
-(define cust (make-custodian))
+;; ----------------------------------------
 
-(define ((wrap/custodian proc))
-  (parameterize ((current-custodian (make-custodian)))
-    (begin0 (proc) (custodian-shutdown-all (current-custodian)))))
-
-(command-line
- #:once-each
- [("--gui") "Run tests in RackUnit GUI" (set! gui? #t)]
- [("-k" "--killsafe") "Wrap with kill-safe-connection" (set! kill-safe? #t)]
- [("-s" "--sqlite3") "Run sqlite3 in-memory db tests" (set! include-sqlite? #t)]
- [("-f" "--config-file") file  "Use configuration file" (pref-file file)]
- [("-p" "--add-use-place") "Add #:use-place variants" (set! add-use-place? #t)]
- [("-t" "--testing-dsn-file") "Use testing DSN file" (current-dsn-file testing-dsn)]
- [("--benchmark") "Run in benchmark mode" (set! benchmark? #t)]
- [("--parallel") "Run tests in parallel thread" (set! use-parallel-thread? #t)]
- #:args labels
- (let ()
-   (define no-labels? (not (or include-sqlite? (pair? labels))))
-   (when no-labels? (set! add-use-place? #t))
-   (when benchmark? (set! base-flags (cons 'benchmark base-flags)))
-   (when (and gui? use-parallel-thread?)
-     (error 'all-tests "incompatible options: `--gui` and `--parallel`"))
-   (when (and gui? benchmark?)
-     (error 'all-tests "incompatible options: `--gui` and `--benchmark`"))
-   (define dbconfs
-     (append (if (or include-sqlite? no-labels?)
-                 (list sqlite3-dbconf)
-                 null)
-             (append*
-              (for/list ([label labels])
-                (get-dbconf (string->symbol label))))))
-   (define dbconfs2
-     (cond [add-use-place? (apply append (map expand-dbconf dbconfs))]
-           [else dbconfs]))
-   (define tests (for/list ([dbconf dbconfs2])
-                   (cons (format "~a" (dbconf-name dbconf))
-                         (make-all-tests (list dbconf)))))
-   (define (run proc) ;; returns void
-     (cond [use-parallel-thread?
-            (thread-wait (thread #:pool 'own proc))]
-           [else
-            (thread-wait (thread proc))]))
-   (parameterize ((current-custodian cust))
-     (cond [gui?
-            (let* ([test/gui (dynamic-require 'rackunit/gui 'test/gui)])
-              (apply test/gui #:wait? #t (append* (map cdr tests))))]
-           [else
-            (for ([test (in-list tests)])
-              (define the-test (make-test-suite (car test) (cdr test)))
-              (define (do-test) (run (lambda () (run-tests the-test))))
-              (printf "Running ~s tests\n" (car test))
-              (cond [benchmark?
-                     (define real-ms-list
-                       (for/list ([i (in-range benchmark-iters)])
-                         (define-values (_rs cpu-ms real-ms sys-ms)
-                           (time-apply (wrap/custodian do-test) null))
-                         (collect-garbage)
-                         (printf "real time: ~s ms; memory use: ~s kb\n"
-                                 real-ms (quotient (current-memory-use) 1024))
-                         real-ms))
-                     (printf "~s ~s\n" (sort real-ms-list <)
-                             ;; Drop highest and lowest, report sum of rest
-                             (- (apply + real-ms-list)
-                                (+ (apply min real-ms-list) (apply max real-ms-list))))]
-                    [else
-                     (time (run (lambda () (run-tests (make-test-suite (car test) (cdr test))))))])
-              (newline))]))))
-
-;; The tests generally don't explicitly disconnect their connections. The
-;; following encourages finalizer shutdown or forces custodian shutdown, useful
-;; for testing with eg ASan (see racket/racket#3839).
-(when #t
-  (for ([i 10]) (sync (system-idle-evt)) (collect-garbage)))
-(when #f
-  (custodian-shutdown-all cust))
+(module+ main
+  (define flags null)
+  (define gui? #f)
+  (define include-sqlite? #f)
+  (define add-use-place? #f)
+  (command-line
+   #:once-each
+   [("--gui") "Run tests in RackUnit GUI" (set! gui? #t)]
+   [("-t" "--testing-dsn-file") "Use testing DSN file" (current-dsn-file testing-dsn-file)]
+   [("-s" "--sqlite3") "Run sqlite3 in-memory db tests" (set! include-sqlite? #t)]
+   [("-p" "--add-use-place") "Add #:use-place variants" (set! add-use-place? #t)]
+   [("--benchmark") "Run in benchmark mode"
+                    (set! flags (cons 'benchmark flags))]
+   [("--parallel") "Run tests in parallel thread"
+                   (set! flags (cons 'use-parallel-thread flags))]
+   [("--killsafe") "Wrap with kill-safe-connection"
+                   (set! flags (cons 'kill-safe flags))]
+   #:args labels
+   (let ()
+     (define no-labels? (not (or include-sqlite? (pair? labels))))
+     (when no-labels? (set! add-use-place? #t))
+     (when (and gui? (memq 'use-parallel-thread flags))
+       (error 'all-tests "incompatible options: `--gui` and `--parallel`"))
+     (when (and gui? (memq 'benchmark flags))
+       (error 'all-tests "incompatible options: `--gui` and `--benchmark`"))
+     (run #:gui? gui?
+          #:include-sqlite? (or include-sqlite? no-labels?)
+          #:add-use-place? add-use-place?
+          #:flags flags
+          #:testing-dsn-file? #f ;; already set above
+          (map string->symbol labels)))))

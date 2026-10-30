@@ -1,23 +1,24 @@
 #lang racket/base
 (require racket/class
          racket/unit
+         racket/match
          db/base)
-(provide database^
+(provide (struct-out dbconf)
+         database^
          test^
          config^
          config@)
 
+(struct dbconf (name dsn) #:transparent)
+
 (define-signature database^
-  (dbtestname
-   connect
-   connect-first-time
-   dbsys
-   dbflags
-   kill-safe?))
+  (the-dbconf
+   flags0))
 
 (define-signature test^ (test))
 (define-signature config^
-  (connect-for-test
+  (dbsys
+   connect-for-test
    connect-and-setup
    call-with-connection
    (define-syntaxes (with-connection)
@@ -40,6 +41,18 @@
   (export config^)
 
   (define NOISY? #f)
+
+  (match-define (dbconf dbtestname the-data-source) the-dbconf)
+  (match-define (data-source connector _args exts) the-data-source)
+  (define dbsys (case connector ((odbc-driver) 'odbc) (else connector)))
+  (define dbflags (append flags0 (cond [(assq 'db:test exts) => cadr] [else '()])))
+  (define kill-safe? (and (memq 'kill-safe dbflags)))
+
+  (define (connect)
+    (dsn-connect the-data-source))
+
+  (define (connect-first-time ssl?)
+    (if ssl? (dsn-connect #:ssl 'yes the-data-source) (connect)))
 
   (define (connect-for-test)
     (cond [kill-safe? (kill-safe-connection (connect))]
@@ -173,7 +186,7 @@
       (define c (connect-first-time (FLAG 'connect-first-ssl)))
       (when (FLAG 'const-table)
         ;; table-exists? doesn't work on SQLServer
-        (cond [(ORFLAGS 'ismss 'isfbd) ;; table-exists? doesn't work
+        (cond [(ORFLAGS 'ismss 'isfbd 'isacc) ;; table-exists? doesn't work
                (with-handlers ([exn:fail? void])
                  (query-exec c "drop table the_numbers"))]
               [else
