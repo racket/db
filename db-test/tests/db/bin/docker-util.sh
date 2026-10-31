@@ -132,7 +132,7 @@ start_mysql() {
 }
 
 start_oracle() {
-    DBIMAGE="${DBIMAGE:-container-registry.oracle.com/database/free}"
+    DBIMAGE="${DBIMAGE:-container-registry.oracle.com/database/free:latest-lite}"
     need_image "$DBIMAGE"
     "$DOCKER" run $COMMON_OPTS --publish 1521:1521 --publish 5500:5500 \
            -e ORACLE_SID=FREE \
@@ -145,7 +145,8 @@ start_db2() {
     # Without separate volume mounted with :Z flag, fails. Still not sure why.
     # - https://github.com/containers/podman/issues/3683
     # - https://www.redhat.com/sysadmin/container-permission-denied-errors
-    DBIMAGE="${DBIMAGE:-ibmcom/db2}"
+    DBIMAGE="${DBIMAGE:-icr.io/db2_community/db2}"
+    # DBIMAGE="${DBIMAGE:-ibmcom/db2}" # old location, only up to 11.5.8.0
     need_image "$DBIMAGE"
     TMPDIR=`mktemp -d --tmpdir racket-test-db2.XXX`
     echo ; echo "Created temporary dir $TMPDIR" ; echo
