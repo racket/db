@@ -880,33 +880,26 @@
       (when option
         ;; No options supported
         (raise-argument-error who "#f" option))
-      (define-values (ok-levels default-level)
-        (yn-ref-values
-         (A #:db db
-            (yndo [(list _ ok-levels)
-                   (YN who (SQLGetInfo db SQL_TXN_ISOLATION_OPTION) db)]
-                  [(list _ default-level)
-                   (YN who (SQLGetInfo db SQL_DEFAULT_TXN_ISOLATION) db)]
-                  => (yes (list ok-levels default-level))))))
+      (define-values (ok-levels default-level) (get-tx-level-info))
       (define requested-level
         (case isolation
           [(serializable) SQL_TXN_SERIALIZABLE]
           [(repeatable-read) SQL_TXN_REPEATABLE_READ]
           [(read-committed) SQL_TXN_READ_COMMITTED]
           [(read-uncommitted) SQL_TXN_READ_UNCOMMITTED]
-          [else
-           ;; MySQL ODBC returns 0 for default level, seems no good.
-           ;; So if 0, use serializable.
-           (if (zero? default-level) SQL_TXN_SERIALIZABLE default-level)]))
-      (when (zero? (bitwise-and requested-level ok-levels))
-        (error who "requested isolation level is not available\n  level: ~e"
-               isolation))
+          [else #f]))
+      (when requested-level
+        (when (zero? (bitwise-and requested-level (or ok-levels 0)))
+          (error who "requested isolation level is not available\n  level: ~e"
+                 isolation)))
       (yn-ref
        (worker-call
         (lambda (worker?)
           (define-syntax-rule (FA #:db db e ...) (FA* worker? #:db db e ...))
           (FA #:db db
-              (yndo [_ (YN who (SQLSetConnectAttr db SQL_ATTR_TXN_ISOLATION requested-level) db)]
+              (yndo [_ (if requested-level
+                           (YN who (SQLSetConnectAttr db SQL_ATTR_TXN_ISOLATION requested-level) db)
+                           (yes (void)))]
                     [_ (YN who (SQLSetConnectAttr db SQL_ATTR_AUTOCOMMIT SQL_AUTOCOMMIT_OFF) db)]
                     [#:do (set-tx-status! who #t)]
                     => (yes (void))))))))
@@ -927,6 +920,24 @@
                     ;; commit/rollback can fail; don't change status until possible error handled
                     [#:do (set-tx-status! who #f)]
                     => (yes (void))))))))
+
+    (define cached-tx-level-info #f)
+    (define/public (get-tx-level-info)
+      (match cached-tx-level-info
+        [(list ok-levels default-level)
+         (values ok-levels default-level)]
+        [#f
+         (define-values (ok-levels default-level)
+           (A #:db db
+              (define-values (s1 ok-levels)
+                (SQLGetInfo db SQL_TXN_ISOLATION_OPTION))
+              (define-values (s2 default-level)
+                (SQLGetInfo db SQL_DEFAULT_TXN_ISOLATION))
+              ;; MS Access driver returns error w/o diagnostic; just ignore.
+              (values (if (ok-status? s1) ok-levels #f)
+                      (if (ok-status? s2) default-level #f))))
+         (set! cached-tx-level-info (list ok-levels default-level))
+         (values ok-levels default-level)]))
 
     ;; ----------------------------------------
     ;; List tables
