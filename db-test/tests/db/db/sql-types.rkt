@@ -1044,7 +1044,11 @@
   (tc (mkconf 'long   #:param "CLng(?)")  (tt-int 32))
   (tc (mkconf 'single #:param "CSng(?)")  t-float4)
   (tc (mkconf 'double #:param "CDbl(?)")  t-float8)
-  (tc (mkconf 'decimal #:param "CDec(?)" #:type "decimal(30,10)") t-numeric/30/10)
+  ;; Apparently, Access only allows creation of DECIMAL fields in some
+  ;; combinations of drivers and file properties, and my testing setup does not
+  ;; satisy its requirements. Attempting to create the rt table with a DECIMAL
+  ;; field gives a syntax error.
+  (tc (mkconf 'decimal #:param "CDec(?)" #:type #f #;"decimal(30,10)") t-numeric/30/10)
   ;; MONEY / CURRENCY
   ;; UNIQUEIDENTIFIER / GUID
   (tc (mkconf 'datetime #:param "CDate(?)") t-timestamp)

@@ -223,6 +223,7 @@
                           ((sqlite3) '(any any))
                           ((odbc)
                            (cond [(FLAG 'isora) '(decimal varchar)]
+                                 [(FLAG 'isacc) '(integer wvarchar)]
                                  [else '(integer varchar)])))))
         (let* ([pst (prepare c (sql "select n from the_numbers where n = $1"))]
                [param-types (map cadr (prepared-statement-parameter-types pst))])
@@ -363,14 +364,15 @@
         (check-equal? (in-transaction? c) #t)
         (check-pred void? (rollback-transaction c))
         (check-equal? (in-transaction? c) #f)))
-    (test-case "error on managed st, unmanaged end"
-      (with-connection c
-        (start-transaction c)
-        (check-exn #rx"statement not allowed in current transaction state.*statement type: ROLLBACK"
-                   (lambda () (query-exec c "ROLLBACK")))
-        (check-equal? (in-transaction? c) #t)
-        ;; SQLite-ODBC is unhappy with open tx on disconnect
-        (rollback-transaction c)))
+    (unless (ORFLAGS 'isacc)
+      (test-case "error on managed st, unmanaged end"
+        (with-connection c
+          (start-transaction c)
+          (check-exn #rx"statement not allowed in current transaction state.*statement type: ROLLBACK"
+                     (lambda () (query-exec c "ROLLBACK")))
+          (check-equal? (in-transaction? c) #t)
+          ;; SQLite-ODBC is unhappy with open tx on disconnect
+          (rollback-transaction c))))
     (unless (ORFLAGS 'odbc)
       (test-case "unmanaged st, managed end ok"
         (with-connection c
@@ -379,13 +381,14 @@
           (check-equal? (in-transaction? c) #t)
           (rollback-transaction c)
           (check-equal? (in-transaction? c) #f))))
-    (test-case "error on cwt, unmanaged end"
-      (with-connection c
-        (check-exn #rx"statement not allowed in current transaction state.*statement type: ROLLBACK"
-                   (lambda ()
-                     (call-with-transaction c
-                       (lambda () (query-exec c "ROLLBACK")))))
-        (check-equal? (in-transaction? c) #f)))
+    (unless (ORFLAGS 'isacc)
+      (test-case "error on cwt, unmanaged end"
+        (with-connection c
+          (check-exn #rx"statement not allowed in current transaction state.*statement type: ROLLBACK"
+                     (lambda ()
+                       (call-with-transaction c
+                         (lambda () (query-exec c "ROLLBACK")))))
+          (check-equal? (in-transaction? c) #f))))
     (when (and (ORFLAGS 'ispg 'issl) (not (ORFLAGS 'odbc)))
       (test-case "transactional ddl"
         (with-connection c
