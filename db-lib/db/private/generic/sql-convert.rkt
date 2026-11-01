@@ -1,10 +1,10 @@
 #lang racket/base
 (require racket/math)
 
-(provide exact->decimal-string    ;; odbc, tests (?)
-         scaled-integer->decimal-string ;; odbc
-         exact->scaled-integer    ;; pg, odbc
-         inexact->scaled-integer) ;; pg
+(provide exact->decimal-string
+         scaled-integer->decimal-string
+         exact->scaled-integer
+         inexact->scaled-integer)
 
 ;; ========================================
 
@@ -36,16 +36,12 @@
                                (substring mstr (- len ex) len))])]))
 
 ;; exact->scaled-integer : exact-rational -> (cons int int) or #f
-;; Given x, returns (cons M E) s.t. x = (M * 10^-E)
+;; Given x, returns (cons M E) s.t. x = (* M (expt 10 (- E)))
 (define (exact->scaled-integer n [trim-integers? #f])
-  (if (and trim-integers? (integer? n))
-      (let*-values ([(n* fives) (factor-out n 5)]
-                    [(n** twos) (factor-out n* 2)])
-        (let ([tens (min fives twos)])
-          (cons (/ n (expt 10 tens)) (- tens))))
-      (let* ([whole-part (truncate n)]
-             [fractional-part (- (abs n) (abs whole-part))]
-             [den (denominator fractional-part)])
+  (if (and trim-integers? (exact-integer? n))
+      (let-values ([(n* tens) (factor-out n 10)])
+        (cons n* (- tens)))
+      (let* ([den (denominator n)])
         (let*-values ([(den* fives) (factor-out den 5)]
                       [(den** twos) (factor-out den* 2)])
           (and (= 1 den**)
@@ -53,7 +49,7 @@
                  (cons (* n (expt 10 tens)) tens)))))))
 
 ;; inexact->scaled-integer : inexact-rational -> (cons int int)
-;; Given x, returns (cons M E) s.t. x ~= (M * 10^-E)
+;; Given x, returns (cons M E) s.t. x ~= (* M (expt 10 (- E)))
 (define (inexact->scaled-integer x)
   ;; FIXME: as a hacky alternative, could just parse result of number->string
   (if (zero? x)
@@ -73,21 +69,16 @@
              [E* (cdr M*+E*)])
         (cons M* (- E* E)))))
 
-(define (factor-out-v1 n factor)
-  (define (loop n acc)
-    (let-values ([(q r) (quotient/remainder n factor)])
-      (if (zero? r)
-          (loop q (add1 acc))
-          (values n acc))))
-  (loop n 0))
-
+;; factor-out : ExactInteger Nat -> (cons ExactInteger Nat)
+;; Returns (cons q e) s.t. n = (* q (expt factor e))
 (define (factor-out n factor)
   (define (loop n factor)
-    (if (<= factor n)
-        (let*-values ([(q n) (loop n (* factor factor))]
-                      [(q* r) (quotient/remainder q factor)])
-          (if (zero? r)
-              (values q* (+ n n 1))
-              (values q  (+ n n))))
-        (values n 0)))
+    (cond [(<= factor (abs n))
+           (let-values ([(q e) (loop n (* factor factor))])
+             (let ([q* (quotient q factor)]
+                   [r (remainder q factor)])
+               (if (zero? r)
+                   (values q* (+ e e 1))
+                   (values q  (+ e e)))))]
+          [else (values n 0)]))
   (loop n factor))
