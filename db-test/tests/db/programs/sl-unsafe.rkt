@@ -9,12 +9,11 @@
 
 (define-runtime-path sqlite3-ext "sqlite3ext.so")
 
-;; == Test load-extension ==
-;; This test only runs if sqlite3ext.so exists. See sqlite3ext.c for
-;; compilation instructions.
-
 (define (run-tests c)
 
+  ;; == Test load-extension ==
+  ;; This test only runs if sqlite3ext.so exists. See sqlite3ext.c for
+  ;; compilation instructions.
   (cond [(file-exists? sqlite3-ext)
          (sqlite3-load-extension c sqlite3-ext)
          (check-equal? (query-value c "select extplus(?,?)" 1.0 2.0)
@@ -38,6 +37,10 @@
   ;; Racket and RacketCS have different exception messages here:
   (check-exn #rx"contract violation|is not a number"
              (lambda () (query-value c "select rktplus('abc',2)")))
+
+  (sqlite3-create-function c "identity" 1 values)
+  (check-equal? (query-value c "SELECT identity(7)") 7)
+  (check-equal? (query-value c "SELECT identity(NULL)") sql-null)
 
   ;; == Test create-aggregate ==
 
