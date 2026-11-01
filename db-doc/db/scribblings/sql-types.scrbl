@@ -57,50 +57,48 @@ The following table lists the PostgreSQL types known to this library, using the
 names listed in @tt{pg_type.typname}, along with their corresponding Racket
 representations.
 
-@centered{
-@tabbing{
-@bold{PostgreSQL}       @& @bold{type}             @& @bold{Racket} @//
-@tt{bool}               @& @racket['boolean]       @& @racket[boolean?] @//
-@tt{char}               @& @racket['char1]         @& @racket[char?] @//
-@tt{int2}               @& @racket['smallint]      @& @racket[exact-integer?] @//
-@tt{int4}               @& @racket['integer]       @& @racket[exact-integer?] @//
-@tt{int8}               @& @racket['bigint]        @& @racket[exact-integer?] @//
-@tt{float4}             @& @racket['real]          @& @racket[real?] @//
-@tt{float8}             @& @racket['double]        @& @racket[real?] @//
-@tt{numeric}            @& @racket['decimal]       @& @racket[real?] @//
-@tt{bpchar}             @& @racket['character]     @& @racket[string?] @//
-@tt{varchar}            @& @racket['varchar]       @& @racket[string?] @//
-@tt{uuid}               @& @racket['uuid]          @& @racket[uuid?] @//
-@tt{text}               @& @racket['text]          @& @racket[string?] @//
-@tt{bytea}              @& @racket['bytea]         @& @racket[bytes?] @//
-@tt{date}               @& @racket['date]          @& @racket[sql-date?] @//
-@tt{time}               @& @racket['time]          @& @racket[sql-time?] @//
-@tt{timetz}             @& @racket['timetz]        @& @racket[sql-time?] @//
-@tt{timestamp}          @& @racket['timestamp]     @& @racket[sql-timestamp?]
-                                                      or @racket[-inf.0] or @racket[+inf.0] @//
-@tt{timestamptz}        @& @racket['timestamptz]   @& @racket[sql-timestamp?]
-                                                      or @racket[-inf.0] or @racket[+inf.0] @//
-@tt{interval}           @& @racket['interval]      @& @racket[sql-interval?] @//
-@tt{bit}                @& @racket['bit]           @& @racket[bit-vector?] @//
-@tt{varbit}             @& @racket['varbit]        @& @racket[bit-vector?] @//
+@tabular[
+#:style 'boxed
+(list
+(list @bold{PostgreSQL}       @bold{type}             @bold{Racket})
+(list @tt{bool}               @racket['boolean]       @racket[boolean?])
+(list @tt{char}               @racket['char1]         @racket[char?])
+(list @tt{int2}               @racket['smallint]      @racket[exact-integer?])
+(list @tt{int4}               @racket['integer]       @racket[exact-integer?])
+(list @tt{int8}               @racket['bigint]        @racket[exact-integer?])
+(list @tt{float4}             @racket['real]          @racket[real?])
+(list @tt{float8}             @racket['double]        @racket[real?])
+(list @tt{numeric}            @racket['decimal]       @racket[real?])
+(list @tt{bpchar}             @racket['character]     @racket[string?])
+(list @tt{varchar}            @racket['varchar]       @racket[string?])
+(list @tt{uuid}               @racket['uuid]          @racket[uuid?])
+(list @tt{text}               @racket['text]          @racket[string?])
+(list @tt{bytea}              @racket['bytea]         @racket[bytes?])
+(list @tt{date}               @racket['date]          @racket[sql-date?])
+(list @tt{time}               @racket['time]          @racket[sql-time?])
+(list @tt{timetz}             @racket['timetz]        @racket[sql-time?])
+(list @tt{timestamp}          @racket['timestamp]     @elem{@racket[sql-timestamp?] or @racket[-inf.0] or @racket[+inf.0]})
+(list @tt{timestamptz}        @racket['timestamptz]   @elem{@racket[sql-timestamp?] or @racket[-inf.0] or @racket[+inf.0]})
+(list @tt{interval}           @racket['interval]      @racket[sql-interval?])
+(list @tt{bit}                @racket['bit]           @racket[bit-vector?])
+(list @tt{varbit}             @racket['varbit]        @racket[bit-vector?])
 
-@tt{json}               @& @racket['json]          @& @racket[jsexpr?] @//
-@tt{jsonb}              @& @racket['jsonb]         @& @racket[jsexpr?] @//
-@tt{int4range}          @& @racket['int4range]     @& @racket[pg-range-or-empty?] @//
-@tt{int8range}          @& @racket['int8range]     @& @racket[pg-range-or-empty?] @//
-@tt{numrange}           @& @racket['numrange]      @& @racket[pg-range-or-empty?] @//
-@tt{tsrange}            @& @racket['tsrange]       @& @racket[pg-range-or-empty?] @//
-@tt{tstzrange}          @& @racket['tstzrange]     @& @racket[pg-range-or-empty?] @//
-@tt{daterange}          @& @racket['daterange]     @& @racket[pg-range-or-empty?] @//
+(list @tt{json}               @racket['json]          @racket[jsexpr?])
+(list @tt{jsonb}              @racket['jsonb]         @racket[jsexpr?])
+(list @tt{int4range}          @racket['int4range]     @racket[pg-range-or-empty?])
+(list @tt{int8range}          @racket['int8range]     @racket[pg-range-or-empty?])
+(list @tt{numrange}           @racket['numrange]      @racket[pg-range-or-empty?])
+(list @tt{tsrange}            @racket['tsrange]       @racket[pg-range-or-empty?])
+(list @tt{tstzrange}          @racket['tstzrange]     @racket[pg-range-or-empty?])
+(list @tt{daterange}          @racket['daterange]     @racket[pg-range-or-empty?])
 
-@tt{point}              @& @racket['point]         @& @racket[point?] @//
-@tt{lseg}               @& @racket['lseg]          @& @racket[line?] @//
-@tt{path}               @& @racket['path]          @& @racket[pg-path?] @//
-@tt{box}                @& @racket['box]           @& @racket[pg-box?] @//
-@tt{polygon}            @& @racket['polygon]       @& @racket[polygon?] @//
-@tt{circle}             @& @racket['circle]        @& @racket[pg-circle?]
-}
-}
+(list @tt{point}              @racket['point]         @racket[point?])
+(list @tt{lseg}               @racket['lseg]          @racket[line?])
+(list @tt{path}               @racket['path]          @racket[pg-path?])
+(list @tt{box}                @racket['box]           @racket[pg-box?])
+(list @tt{polygon}            @racket['polygon]       @racket[polygon?])
+(list @tt{circle}             @racket['circle]        @racket[pg-circle?])
+)]
 
 The @racket['char1] type, written @tt{"char"} in PostgreSQL's SQL
 syntax (the quotation marks are significant), is one byte, essentially
@@ -183,37 +181,38 @@ This section applies to connections created with
 The types that MySQL reports types for query results do not correspond exactly
 to the declared types in SQL. The following table lists the MySQL result types
 known to this library, along with their corresponding Racket representations:
-@centered{
-@tabbing{
-@bold{MySQL}      @& @bold{result type}       @& @bold{Racket} @//
-@tt{INTEGER}      @& @racket['integer]        @& @racket[exact-integer?] @//
-@tt{TINYINT}      @& @racket['tinyint]        @& @racket[exact-integer?] @//
-@tt{SMALLINT}     @& @racket['smallint]       @& @racket[exact-integer?] @//
-@tt{MEDIUMINT}    @& @racket['mediumint]      @& @racket[exact-integer?] @//
-@tt{BIGINT}       @& @racket['bigint]         @& @racket[exact-integer?] @//
-@tt{FLOAT}        @& @racket['real]           @& @racket[real?] @//
-@tt{DOUBLE}       @& @racket['double]         @& @racket[real?] @//
-@tt{DECIMAL}      @& @racket['decimal]        @& @racket[exact?] @//
-@tt{NUMERIC}      @& @racket['decimal]        @& @racket[exact?] @//
+@tabular[
+#:style 'boxed
+(list
+(list @bold{MySQL}      @bold{result type}       @bold{Racket})
+(list @tt{INTEGER}      @racket['integer]        @racket[exact-integer?])
+(list @tt{TINYINT}      @racket['tinyint]        @racket[exact-integer?])
+(list @tt{SMALLINT}     @racket['smallint]       @racket[exact-integer?])
+(list @tt{MEDIUMINT}    @racket['mediumint]      @racket[exact-integer?])
+(list @tt{BIGINT}       @racket['bigint]         @racket[exact-integer?])
+(list @tt{FLOAT}        @racket['real]           @racket[real?])
+(list @tt{DOUBLE}       @racket['double]         @racket[real?])
+(list @tt{DECIMAL}      @racket['decimal]        @racket[exact?])
+(list @tt{NUMERIC}      @racket['decimal]        @racket[exact?])
 
-@tt{CHAR}         @& @racket['string] [1]     @& @racket[string?] @//
-@tt{VARCHAR}      @& @racket['var-string] [1] @& @racket[string?] @//
-@tt{TEXT}         @& @racket['blob] [1]       @& @racket[string?] @//
+(list @tt{CHAR}         @elem{@racket['string] [1]}     @racket[string?])
+(list @tt{VARCHAR}      @elem{@racket['var-string] [1]} @racket[string?])
+(list @tt{TEXT}         @elem{@racket['blob] [1]}       @racket[string?])
 
-@tt{BINARY}       @& @racket['string] [1]     @& @racket[bytes?] @//
-@tt{VARBINARY}    @& @racket['var-string] [1] @& @racket[bytes?] @//
-@tt{BLOB}         @& @racket['blob] [1]       @& @racket[bytes?] @//
-@tt{BIT}          @& @racket['bit]            @& @racket[bit-vector?] @//
+(list @tt{BINARY}       @elem{@racket['string] [1]}     @racket[bytes?])
+(list @tt{VARBINARY}    @elem{@racket['var-string] [1]} @racket[bytes?])
+(list @tt{BLOB}         @elem{@racket['blob] [1]}       @racket[bytes?])
+(list @tt{BIT}          @racket['bit]            @racket[bit-vector?])
 
-@tt{DATE}         @& @racket['date]           @& @racket[sql-date?] @//
-@tt{DATETIME}     @& @racket['datetime]       @& @racket[sql-timestamp?] @//
-@tt{TIMESTAMP}    @& @racket['datetime]       @& @racket[sql-timestamp?] @//
-@tt{TIME}         @& @racket['time] [2]       @& @racket[sql-time?] or @racket[sql-day-time-interval?] @//
+(list @tt{DATE}         @racket['date]           @racket[sql-date?])
+(list @tt{DATETIME}     @racket['datetime]       @racket[sql-timestamp?])
+(list @tt{TIMESTAMP}    @racket['datetime]       @racket[sql-timestamp?])
+(list @tt{TIME}         @elem{@racket['time] [2]}       @elem{@racket[sql-time?] or @racket[sql-day-time-interval?]})
 
-@tt{JSON}         @& @racket['json] [3]       @& @racket[jsexpr?] @//
-@tt{VECTOR}       @& @racket['vector] [4]     @& @racket[flvector?] @//
-@tt{GEOMETRY}     @& @racket['geometry] [5]   @& @racket[geometry2d?]
-}}
+(list @tt{JSON}         @elem{@racket['json] [3]}       @racket[jsexpr?])
+(list @tt{VECTOR}       @elem{@racket['vector] [4]}     @racket[flvector?])
+(list @tt{GEOMETRY}     @elem{@racket['geometry] [5]}   @racket[geometry2d?])
+)]
 
 Historically, MySQL did not provide types for query parameters; rather, the
 client was expected to tell the server the type of each parameter it
@@ -222,21 +221,22 @@ for parameters, but this library currently discards that information.)
 Consequently, @racket[prepared-statement-parameter-types] reports the
 pseudo-type @racket['any] for every parameter of a MySQL prepared statement, and
 the parameter type sent to the server is inferred from the value as follows:
-@centered{
-@tabbing[#:spacing 8]{
-  @bold{Racket} @& @bold{parameter type} @//
-  @racket[string?]   @& @racket['var-string] @//
-  @racket[exact-integer?] @& @racket['integer] or @racket['bigint] or @racket['decimal] @//
-  @racket[rational?] @& @racket['double] @//
-  @racket[bytes?]    @& @racket['blob] @//
-  @racket[sql-date?] @& @racket['date] @//
-  @racket[sql-time?] @& @racket['time] @//
-  @racket[sql-day-time-interval?] @& @racket['time] @//
-  @racket[sql-timestamp?] @& @racket['timestamp] @//
-  @racket[bit-vector?] @& @racket['bit] @//
-  @racket[geometry2d?] @& @racket['blob] or @racket['geometry] [5] @//
-  @racket[mysql-json?] @& @racket['json]
-}}
+@tabular[
+#:style 'boxed
+(list
+(list @bold{Racket}           @bold{parameter type})
+(list @racket[string?]        @racket['var-string])
+(list @racket[exact-integer?] @elem{@racket['integer] or @racket['bigint] or @racket['decimal]})
+(list @racket[rational?]      @racket['double])
+(list @racket[bytes?]         @racket['blob])
+(list @racket[sql-date?]      @racket['date])
+(list @racket[sql-time?]      @racket['time])
+(list @racket[sql-day-time-interval?] @racket['time])
+(list @racket[sql-timestamp?] @racket['timestamp])
+(list @racket[bit-vector?]    @racket['bit])
+(list @racket[geometry2d?]    @elem{@racket['blob] or @racket['geometry] [5]})
+(list @racket[mysql-json?]    @racket['json])
+)]
 
 [1] Fields of type @tt{CHAR} and @tt{BINARY} are both reported as
 @racket['string]; they are distinguished by the absence or presence of
@@ -287,30 +287,29 @@ This section applies to connections created with
 
 The following table lists the Cassandra types known to this library,
 along with their corresponding Racket representations.
-
-@centered{
-@tabbing[#:spacing 8]{
-  @bold{Cassandra type}   @& @bold{Racket type} @//
-  @racket['ascii]         @& @racket[string?] @//
-  @racket['bigint]        @& @racket[exact-integer?] @//
-  @racket['int]           @& @racket[exact-integer?] @//
-  @racket['blob]          @& @racket[bytes?] @//
-  @racket['boolean]       @& @racket[boolean?] @//
-  @racket['decimal]       @& @racket[exact-integer?] @//
-  @racket['double]        @& @racket[real?] @//
-  @racket['float]         @& @racket[real?] @//
-@;@racket['inet]          @& @racket[???] @//
-  @racket['text]          @& @racket[string?] @//
-  @racket['varchar]       @& @racket[string?] @//
-  @racket['timestamp]     @& @racket[sql-timestamp?] @//
-  @racket['uuid]          @& @racket[uuid?] @//
-  @racket['timeuuid]      @& @racket[uuid?] @//
-  @racket['varint]        @& @racket[exact-integer?] @//
-  @racket[`(list ,_t)]      @& @racket[(listof _t)] @//
-  @racket[`(set ,_t)]       @& @racket[(set/c _t)] @//
-  @racket[`(map ,_k ,_v)]   @& @racket[(alistof _k _v)] @//
-  @racket[`(tuple ,_t ...)] @& @racket[(vector/c _t ...)]
-}}
+@tabular[
+#:style 'boxed
+(list
+(list @bold{Cassandra}        @bold{Racket})
+(list @racket['ascii]         @racket[string?])
+(list @racket['bigint]        @racket[exact-integer?])
+(list @racket['int]           @racket[exact-integer?])
+(list @racket['blob]          @racket[bytes?])
+(list @racket['boolean]       @racket[boolean?])
+(list @racket['decimal]       @racket[exact-integer?])
+(list @racket['double]        @racket[real?])
+(list @racket['float]         @racket[real?])
+(list @racket['text]          @racket[string?])
+(list @racket['varchar]       @racket[string?])
+(list @racket['timestamp]     @racket[sql-timestamp?])
+(list @racket['uuid]          @racket[uuid?])
+(list @racket['timeuuid]      @racket[uuid?])
+(list @racket['varint]        @racket[exact-integer?])
+(list @racket[`(list ,_t)]      @racket[(listof _t)])
+(list @racket[`(set ,_t)]       @racket[(set/c _t)])
+(list @racket[`(map ,_k ,_v)]   @racket[(alistof _k _v)])
+(list @racket[`(tuple ,_t ...)] @racket[(vector/c _t ...)])
+)]
 
 
 @subsection[#:tag "sqlite-types"]{SQLite Types}
@@ -325,16 +324,15 @@ Unlike PostgreSQL and MySQL, SQLite does not enforce declared type
 constraints (with the exception of @tt{integer primary key}) on
 @emph{columns}. Rather, every SQLite @emph{value} has an associated
 ``storage class''.
-
-@centered{
-@tabbing{
-  @bold{SQLite storage class}  @& @bold{Racket type} @//
-  @tt{integer}                 @& @racket[exact-integer?] @//
-  @tt{real}                    @& @racket[real?] @//
-  @tt{text}                    @& @racket[string?] @//
-  @tt{blob}                    @& @racket[bytes?]
-}
-}
+@tabular[
+#:style 'boxed
+(list
+(list @bold{SQLite storage class}  @bold{Racket})
+(list @tt{integer}                 @racket[exact-integer?])
+(list @tt{real}                    @racket[real?])
+(list @tt{text}                    @racket[string?])
+(list @tt{blob}                    @racket[bytes?])
+)]
 
 SQLite does not report specific parameter and result types for
 prepared queries. Instead, they are assigned the pseudo-type
