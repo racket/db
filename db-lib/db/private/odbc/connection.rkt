@@ -978,6 +978,19 @@
           (for/list ([row (in-list rows)])
             (vector-ref row 0)))))
 
+    (define/public (odbc-list-tables catalog schema table tabletype)
+      (A #:db db
+         (define who 'odbc-list-tables)
+         (define worker? #f)
+         (define-values (s1 stmt) (SQLAllocHandle SQL_HANDLE_STMT db))
+         (define s2 (SQLTables stmt catalog schema table tabletype))
+         (cond [(ok-status? s2)
+                (define result-dvecs (yes-v (-describe-columns who stmt)))
+                (define result-typeids (map field-dvec->typeid result-dvecs))
+                (begin0 (get-rows who worker? stmt result-typeids #f +inf.0)
+                  (SQLFreeHandle SQL_HANDLE_STMT stmt))]
+               [else #f])))
+
     ;; ----------------------------------------
     ;; Status handler
 

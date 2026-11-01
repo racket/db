@@ -481,16 +481,16 @@
         -> _sqlreturn))
 
 (define-odbc+W SQLTables
-  (_fun (handle catalog schema table) ::
+  (_fun (handle catalog schema table tabletype) ::
         (handle : _sqlhstmt)
         (catalog* : _bytes = (and catalog (string->buf catalog)))
         (_sqlsmallint = (if catalog* (buf-length catalog) 0))
         (schema* : _bytes = (and schema (string->buf schema)))
         (_sqlsmallint = (if schema* (buf-length schema) 0))
-        (table* : _string = (and table (string->buf table)))
+        (table* : _bytes = (and table (string->buf table)))
         (_sqlsmallint = (if table* (buf-length table) 0))
-        (_bytes = #f)
-        (_sqlsmallint = 0)
+        (tabletype* : _bytes = (and tabletype (string->buf tabletype)))
+        (_sqlsmallint = (if tabletype* (buf-length tabletype*) 0))
         -> _sqlreturn))
 
 (define-odbc+W SQLGetTypeInfo
