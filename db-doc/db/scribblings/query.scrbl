@@ -103,13 +103,13 @@ Use parameters instead of Racket string operations (eg,
 The syntax of placeholders varies depending on the database
 system. For example:
 
-@centered{
-@tabbing{
-PostgreSQL:   @&  @tt{select * from the_numbers where n > $1;} @//
-MySQL, ODBC:  @&  @tt{select * from the_numbers where n > ?;} @//
-SQLite:       @&  supports both syntaxes (plus others)
-}
-}
+@tabular[
+#:sep (hspace 4)
+(list
+(list @elem{PostgreSQL: }  @tt{select * from the_numbers where n > $1;})
+(list @elem{MySQL, ODBC: } @tt{select * from the_numbers where n > ?;})
+(list @elem{SQLite: }      @elem{supports both syntaxes (plus others)})
+)]
 
 @defproc[(statement? [x any/c]) boolean?]{
 
