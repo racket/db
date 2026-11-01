@@ -341,6 +341,13 @@ driver can find its sibling shared libraries.
 Known issues:
 @itemlist[
 
+@item{The Oracle ODBC driver requires the
+@hyperlink["https://www.oracle.com/database/technologies/faq-nls-lang.html"]{@tt{NLS_LANG}}
+environment variable to be set @emph{on the client process} with a @tt{UTF8}
+character set in order to treat @tt{VARCHAR} data as UTF-8. See also
+@hyperlink["https://docs.oracle.com/en/database/oracle/oracle-database/26/nlspg/setting-up-globalization-support-environment.html"]{Setting
+Up Globalization Support}.}
+
 @item{Binary values retrieved using multiple calls to @tt{SQLGetData} with
 @tt{SQL_C_BINARY} are corrupted: a byte is dropped at each chunk boundary.
 
