@@ -61,12 +61,12 @@
  (ora21
   (db odbc-driver
       ("DRIVER=Oracle 21 ODBC driver;DBQ=localhost:1521/FREE;UID=system;PWD=orapwd"
-       #:quirks (no-c-bigint no-get-c-binary))
+       #:quirks (no-get-c-binary))
       ((db:test (isora)))))
  (ora23
   (db odbc-driver
       ("DRIVER=Oracle 23 ODBC driver;DBQ=localhost:1521/FREE;UID=system;PWD=orapwd"
-       #:quirks (no-c-bigint no-get-c-binary))
+       #:quirks (no-get-c-binary))
       ((db:test (isora)))))
 
  ;; DB2 ODBC
