@@ -1045,7 +1045,7 @@
                       [else
                        (no (lambda ()
                              (error who "internal error: SQLGetDiagRec failed~a~a"
-                                    (if (= s SQL_NO_DATA) "with SQL_NO_DATA" "")
+                                    (if (= s SQL_NO_DATA) " with SQL_NO_DATA" "")
                                     (if opname (format "\n  operation: ~s" opname) ""))))])]
                [else
                 (no (lambda ()
