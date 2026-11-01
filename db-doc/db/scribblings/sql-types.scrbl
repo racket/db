@@ -5,7 +5,6 @@
           racket/sandbox
           racket/runtime-path
           "config.rkt"
-          "tabbing.rkt"
           (for-label racket/base db db/util/geometry db/util/postgresql db/util/mysql
                      racket/flonum data/bit-vector json))
 

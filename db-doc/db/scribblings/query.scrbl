@@ -5,7 +5,6 @@
           racket/sandbox
           racket/runtime-path
           "config.rkt"
-          "tabbing.rkt"
           (for-label db db/util/geometry db/util/postgresql racket/dict))
 
 @(define-runtime-path log-file "log-for-query.rktd")
