@@ -194,6 +194,7 @@
                                       [(memq 'bytes-longvarbinary-256 quirks) 256]
                                       [else #f]))
     (define quirk-get-c-binary? (not (memq 'no-get-c-binary quirks)))
+    (define quirk-preflight?    (memq 'char-preflight-length quirks))
 
     (define use-describe-param?
       (and strict-parameter-types?
@@ -597,8 +598,9 @@
           (cond [(= len-or-ind SQL_NULL_DATA) sql-null]
                 [(= len-or-ind SQL_NO_TOTAL)
                  ;; Didn't fit in buf, and we have no idea how much more there is.
-                 (define data-end (- (bytes-length buf) ntlen))
-                 (loop buf 0 (cons (subbytes buf 0 data-end) rchunks))]
+                 (define data-end (max 0 (- (bytes-length buf) ntlen)))
+                 (define newbuf (make-bytes 4000))
+                 (loop newbuf 0 (cons (subbytes buf 0 data-end) rchunks))]
                 [else
                  (define len (+ start len-or-ind))
                  (cond [(<= 0 len (- (bytes-length buf) ntlen)) ;; fit in buf
@@ -616,22 +618,28 @@
                         (loop newbuf len-got rchunks)])]))
         (loop (or initbuf scratchbuf) 0 null))
 
-      (define (get-string/latin-1)
+      (define (get-string/latin-1 preflight?)
         (get-varbuf SQL_C_CHAR 1
                     (lambda (buf len _fresh?)
-                      (bytes->string/latin-1 buf #f 0 len))))
-      (define (get-string/utf-8)
+                      (bytes->string/latin-1 buf #f 0 len))
+                    (and preflight? #"")))
+      (define (get-string/utf-8 preflight?)
         (get-varbuf SQL_C_CHAR 1
                     (lambda (buf len _fresh?)
-                      (bytes->string/utf-8 buf #f 0 len))))
+                      (bytes->string/utf-8 buf #f 0 len))
+                    (and preflight? #"")))
+      (define (get-string/wchar preflight?)
+        (get-varbuf SQL_C_WCHAR WCHAR-SIZE
+                    (case WCHAR-SIZE ((2) mkstr2) ((4) mkstr4))
+                    (and preflight? #"")))
       (define (get-string)
         (case char-mode
           ((wchar)
-           (get-varbuf SQL_C_WCHAR WCHAR-SIZE (case WCHAR-SIZE ((2) mkstr2) ((4) mkstr4))))
+           (get-string/wchar quirk-preflight?))
           ((utf-8)
-           (get-string/utf-8))
+           (get-string/utf-8 quirk-preflight?))
           ((latin-1)
-           (get-string/latin-1))))
+           (get-string/latin-1 quirk-preflight?))))
       (define (get-bytes/binary)
         (get-varbuf SQL_C_BINARY 0
                     (lambda (buf len fresh?)
@@ -644,8 +652,7 @@
         ;; the original data, rather than writing BufferLength bytes
         ;; worth of hex codes. Does not appear to write past the end of
         ;; the provided buffer, though. Workaround by using zero-length
-        ;; buffer for first call, to get length.
-        ;; FIXME: if zero-length buffer works, maybe use in general?
+        ;; buffer for first call, to get length (that is, preflight).
         (define (unhex-buffer buf buflen fresh?)
           (define (unhex b)
             (cond [(<= (char->integer #\0) b (char->integer #\9))
@@ -664,7 +671,7 @@
             (bytes-set! outbuf outi
                         (+ (arithmetic-shift hi 4) lo)))
           outbuf)
-        (get-varbuf SQL_C_CHAR 1 unhex-buffer (make-bytes 0)))
+        (get-varbuf SQL_C_CHAR 1 unhex-buffer #""))
       (define (get-bytes/quirky)
         ;; Oracle ODBC driver 21 discards one byte per incomplete SQLGetData
         ;; because it gets confused about NUL termination (which SQL_C_BINARY
@@ -697,7 +704,7 @@
                        (* sign ma (expt 10 (- scale)))]
                       [(? sql-null?) sql-null])]
                    [else
-                    (define s (get-string/latin-1))
+                    (define s (get-string/latin-1 #f))
                     (cond [(string->number s 10 'number-or-false 'decimal-as-exact) => values]
                           [else (get-col-fail "NUMERIC" s)])])]
             [(or (= typeid SQL_SMALLINT)
@@ -708,7 +715,7 @@
              (cond [quirk-c-bigint-ok?
                     (get-int 8 SQL_C_SBIGINT)]
                    [else
-                    (define s (get-string/latin-1))
+                    (define s (get-string/latin-1 #f))
                     (cond [(string->number s 10 'number-or-false 'decimal-as-exact) => values]
                           [else (get-col-fail "BIGINT" s)])])]
             [(or (= typeid SQL_REAL)
