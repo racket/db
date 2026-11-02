@@ -369,6 +369,10 @@ Reports whether the SQLite native library is found, in which case
   64-bit platforms; by default this library applies the workaround of truncating
   the value to 32 bits. This quirk disables that workaround.}
 
+  @item{@racket['char-preflight-length] --- When getting character string
+  values, try to get the length first by passing a zero-length buffer to
+  @tt{SQLGetData}.}
+
   @item{@racket['char-precision], @racket['binary-precision] --- When binding
   character string or binary parameters, respectively, set the ColumnLength
   attribute to a non-zero value. By default, this library sets the ColumnLength
@@ -401,6 +405,7 @@ Reports whether the SQLite native library is found, in which case
     @racketvalfont{'{char,binary}-precision},
     @racketvalfont{'string-longvarchar-{always,256}}, and
     @racketvalfont{'bytes-longvarbinary-{always,256}}.}]
+@;  @history[#:changed "1.15" @elem{Added the @racket['char-preflight-length] quirk.}]
 }
 
 @defproc[(odbc-driver-connect [connection-string string?]
