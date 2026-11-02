@@ -125,7 +125,8 @@
   (db odbc
       (#:dsn "test-access"
        #:character-mode wchar
-       #:quirks (char-precision
+       #:quirks (char-preflight-length
+                 char-precision
                  string-longvarchar-256
                  binary-precision
                  bytes-longvarbinary-256))
